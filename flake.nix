@@ -49,11 +49,13 @@
       };
 
       # public control plane (VPS) — Headscale + static public IP
+      # install: nixos-anywhere --flake .#edge root@178.105.120.5
       nixosConfigurations.edge = nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
         specialArgs = { inherit self; };
         modules = [
           srvos.nixosModules.server
+          disko.nixosModules.disko
           ./hosts/edge
         ];
       };

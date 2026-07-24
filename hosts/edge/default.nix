@@ -1,8 +1,6 @@
 # hosts/edge — public control plane (VPS @ 178.105.120.5).
-# static public IP. Headscale lives here. mothership joins as a node.
-#
-#   ssh nixos@178.105.120.5
-#   sudo nixos-rebuild switch --flake .#edge
+# install: Ubuntu (or any SSH Linux) → nixos-anywhere --flake .#edge
+# day-2:  sudo nixos-rebuild switch --flake .#edge
 {
   lib,
   pkgs,
@@ -10,7 +8,7 @@
 }:
 {
   imports = [
-    ./hardware-configuration.nix
+    ./disko.nix
     ../../modules/base.nix
     ../../modules/admins.nix
     ../../modules/tools.nix
@@ -22,9 +20,12 @@
   networking.hostId = "e5a1c0de";
   networking.useDHCP = lib.mkDefault true;
 
-  # cloud VPS: grub is common; pin device after hardware-configuration is real
-  boot.loader.grub.enable = true;
-  boot.loader.grub.device = "/dev/sda";
+  # Hetzner Cloud CX* is usually /dev/sda; check with lsblk on Ubuntu first
+  mothership.edge.diskDevice = "/dev/sda";
+
+  boot.loader.systemd-boot.enable = true;
+  boot.loader.efi.canTouchEfiVariables = true;
+  boot.loader.grub.enable = lib.mkForce false;
 
   mothership.mesh = {
     enable = true;
