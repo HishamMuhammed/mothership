@@ -1,5 +1,5 @@
-# mesh — Headscale control plane + host tailscaled + optional CF tunnel.
-# data plane for later member SSH. not deck auth. not the IdP (git is).
+# mesh — options + tailscale; headscale only when controlPlane=true (edge).
+# cloudflare tunnel optional. not the IdP (git is).
 {
   imports = [
     ./headscale.nix

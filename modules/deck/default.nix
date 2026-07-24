@@ -7,6 +7,7 @@
 # if you know you know.
 {
   imports = [
+    ./network.nix
     ./mattermost.nix
     # ./vaultwarden.nix
   ];

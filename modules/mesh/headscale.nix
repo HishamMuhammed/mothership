@@ -1,6 +1,5 @@
-# headscale — coordination server.
-# canonical login = static mesh IP (no MagicDNS chicken-egg).
-# serve (tailscale.nix) fronts HTTPS at mothership.<baseDomain> once you're on-mesh.
+# headscale — coordination server (control plane).
+# run on edge (VPS). mothership is a node, not the control plane.
 {
   config,
   lib,
@@ -12,48 +11,41 @@ let
 in
 {
   options.mothership.mesh = {
-    enable = lib.mkEnableOption "Headscale + Tailscale mesh on the mothership";
+    enable = lib.mkEnableOption "mesh stack options (headscale and/or tailscale)";
+
+    # true on edge VPS; false on mothership metal
+    controlPlane = lib.mkEnableOption "run Headscale on this host";
 
     baseDomain = lib.mkOption {
       type = lib.types.str;
       default = "mesh.tinkerhub";
-      description = "MagicDNS base domain. Nodes become <hostname>.<baseDomain>.";
+      description = "MagicDNS base. Nodes become <hostname>.<baseDomain>.";
     };
 
-    # Reserved for this host. Sequential allocation + register mothership first.
     mothershipIPv4 = lib.mkOption {
       type = lib.types.str;
       default = "100.64.0.1";
-      description = "Static Tailscale/Headscale IPv4 for the mothership node.";
+      description = "Reserved mesh IPv4 for the control-plane node (edge).";
     };
 
     prefixV4 = lib.mkOption {
       type = lib.types.str;
       default = "100.64.0.0/10";
-      description = "CGNAT range Headscale hands out (must stay in Tailscale-supported space).";
     };
 
     listenPort = lib.mkOption {
       type = lib.types.port;
       default = 8080;
-      description = "Headscale HTTP listen port on the host.";
     };
 
-    # MUST be reachable by every client (LAN + internet).
-    # LAN-only 100.64.0.1 / 192.168.x dies off-site.
-    # Example: "http://49.47.196.126:8080" or "https://hs.example.com"
     serverUrl = lib.mkOption {
       type = lib.types.str;
-      default = "http://${cfg.mothershipIPv4}:${toString cfg.listenPort}";
-      description = ''
-        Public control-plane URL written into Headscale config (server_url).
-        Clients use the same string as --login-server.
-        For off-LAN access: public IP or DNS + router port-forward to this host.
-      '';
+      default = "http://178.105.120.5:8080";
+      description = "Public Headscale URL (VPS static IP). Clients use as --login-server.";
     };
   };
 
-  config = lib.mkIf cfg.enable {
+  config = lib.mkIf (cfg.enable && cfg.controlPlane) {
     services.headscale = {
       enable = true;
       address = "0.0.0.0";
@@ -65,7 +57,6 @@ in
         prefixes = {
           v4 = cfg.prefixV4;
           v6 = "fd7a:115c:a1e0::/48";
-          # First registered node → .1 — register mothership before anyone else.
           allocation = "sequential";
         };
 
@@ -89,7 +80,6 @@ in
 
         log.level = "info";
 
-        # Wide open for phase-1 bring-up. Tighten when user-vms land.
         policy = {
           mode = "file";
           path = ./policy.hujson;
@@ -99,17 +89,11 @@ in
 
     networking.firewall = {
       trustedInterfaces = [ "tailscale0" ];
-      # LAN clients need 8080 to join before they have a mesh IP.
-      # (only allowing on tailscale0/br-members left Mac unable to auth.)
       allowedTCPPorts = [ cfg.listenPort ];
-      interfaces.tailscale0.allowedTCPPorts = [ cfg.listenPort ];
-      interfaces.br-members.allowedTCPPorts = [ cfg.listenPort ];
       allowedUDPPorts = [ config.services.tailscale.port ];
       checkReversePath = "loose";
     };
 
-    environment.systemPackages = [
-      hs.package
-    ];
+    environment.systemPackages = [ hs.package ];
   };
 }

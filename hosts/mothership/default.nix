@@ -44,19 +44,17 @@ in
   networking.networkmanager.enable = true;
   networking.useDHCP = lib.mkDefault true;
 
+  # Headscale runs on edge (VPS). This metal is a mesh node + fat services host.
   mothership.mesh = {
     enable = true;
+    controlPlane = false;
     baseDomain = "mesh.tinkerhub";
-    mothershipIPv4 = "100.64.0.1";
-    # public control plane via Cloudflare Tunnel on a dirt-cheap throwaway domain.
-    # Buy on Cloudflare Registrar (zone is already on CF). tharavad.xyz stays Hetzner.
-    # Change this one string if you pick a different name.
-    cloudflare = {
-      enable = true;
-      hostname = "not-your-isp.uk"; # joke domain, CF Registrar ~$5/yr; Headscale login URL
-      tokenFile = "/var/lib/cloudflared/tunnel.token";
-    };
+    mothershipIPv4 = "100.64.0.1"; # reserved for edge; this host gets next sequential
+    serverUrl = "http://178.105.120.5:8080";
   };
+
+  # private bridge for loki/grafana/mattermost/vaultwarden
+  mothership.deck.network.enable = true;
 
   # guests after host is stable
   mothership.microvms.enable = false;

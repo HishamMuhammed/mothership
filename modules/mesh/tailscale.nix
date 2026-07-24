@@ -1,4 +1,4 @@
-# tailscale — host client joins local headscale, pins hostname, serves control plane.
+# tailscale client — joins Headscale (local on edge, remote URL on mothership).
 {
   config,
   lib,
@@ -7,8 +7,11 @@
 }:
 let
   cfg = config.mothership.mesh;
-  hsPort = cfg.listenPort;
-  loginLocal = "http://127.0.0.1:${toString hsPort}";
+  loginServer =
+    if cfg.controlPlane then
+      "http://127.0.0.1:${toString cfg.listenPort}"
+    else
+      cfg.serverUrl;
 in
 {
   config = lib.mkIf cfg.enable {
@@ -16,19 +19,15 @@ in
       enable = true;
       openFirewall = true;
       useRoutingFeatures = "server";
-      # authKeyFile later via sops
       extraUpFlags = [
-        # host can always hit local headscale; remote clients use serverUrl
-        "--login-server=${loginLocal}"
+        "--login-server=${loginServer}"
         "--hostname=${config.networking.hostName}"
         "--accept-dns=true"
-        "--advertise-exit-node" # optional: phone/laptop can exit via mothership
       ];
     };
 
-    # serve only works after this node has joined the mesh.
-    # must not fail switch — exit 0 if not logged in yet.
-    systemd.services.tailscale-serve-headscale = {
+    # serve only on control plane after join; soft-fail before join
+    systemd.services.tailscale-serve-headscale = lib.mkIf cfg.controlPlane {
       description = "tailscale serve → local Headscale (after mesh join)";
       after = [
         "tailscaled.service"
@@ -49,19 +48,18 @@ in
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
-        # never fail activation before first join
         SuccessExitStatus = "0 1";
         ExecStart = pkgs.writeShellScript "tailscale-serve-headscale" ''
           set -u
           for i in $(seq 1 30); do
             if tailscale status --json 2>/dev/null | grep -q '"BackendState": "Running"'; then
               tailscale serve reset || true
-              tailscale serve --bg --https=443 http://127.0.0.1:${toString hsPort} && exit 0
+              tailscale serve --bg --https=443 http://127.0.0.1:${toString cfg.listenPort} && exit 0
               exit 0
             fi
             sleep 1
           done
-          echo "tailscale not joined yet — skip serve (run mesh bootstrap, then: systemctl restart tailscale-serve-headscale)"
+          echo "tailscale not joined yet — skip serve"
           exit 0
         '';
         ExecStop = "${pkgs.tailscale}/bin/tailscale serve reset";
@@ -71,31 +69,20 @@ in
     environment.systemPackages = [ pkgs.tailscale ];
 
     environment.etc."mothership/mesh-bootstrap.md".text = ''
-      # mesh bootstrap // mothership
-      # first node only — sequential alloc, this box must own .1
+      # mesh bootstrap
+      control plane (edge): ${cfg.serverUrl}
+      MagicDNS base: ${cfg.baseDomain}
 
-      headscale: 0.0.0.0:${toString hsPort}
-      reserved:  ${cfg.mothershipIPv4}
-      MagicDNS:  ${cfg.baseDomain}
-      login:     http://${cfg.mothershipIPv4}:${toString hsPort}
+      ## on edge (first)
+      sudo -u headscale headscale users create tinkerhub
+      sudo -u headscale headscale users list
+      KEY=$(sudo -u headscale headscale preauthkeys create -u 1 --reusable --expiration 168h)
+      sudo tailscale up --login-server=http://127.0.0.1:${toString cfg.listenPort} --authkey="$KEY" --hostname=edge --reset
 
-      ## once headscale is active (v0.29+: -u is numeric user ID)
-
-      ```
-      sudo -u headscale headscale users create tinkerhub   # once
-      sudo -u headscale headscale users list                 # note ID column
-      KEY=$(sudo -u headscale headscale preauthkeys create -u 1 --reusable --expiration 24h)
-      echo "$KEY"
-      sudo tailscale up \
-        --login-server=${loginLocal} \
-        --authkey="$KEY" \
-        --hostname=${config.networking.hostName} \
-        --accept-dns=true \
-        --reset
-      tailscale ip -4   # expect ${cfg.mothershipIPv4}
-      sudo systemctl restart tailscale-serve-headscale
-      tailscale serve status
-      ```
+      ## on mothership / laptops
+      sudo tailscale up --login-server=${cfg.serverUrl} --authkey="$KEY" --hostname=<name> --reset
+      # ssh mothership@mothership   # after MagicDNS
+      # ssh alvin@alvin             # member VM
     '';
   };
 }

@@ -48,6 +48,16 @@
         ];
       };
 
+      # public control plane (VPS) — Headscale + static public IP
+      nixosConfigurations.edge = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        specialArgs = { inherit self; };
+        modules = [
+          srvos.nixosModules.server
+          ./hosts/edge
+        ];
+      };
+
       devShells = forAllSystems (
         system:
         let
@@ -101,12 +111,23 @@
             test "${host.mothership.mesh.mothershipIPv4}" = "100.64.0.1"
             touch $out
           '';
-          headscale-enabled = pkgs.runCommand "check-headscale" { } ''
-            test "${if host.services.headscale.enable then "true" else "false"}" = "true"
+          # control plane is edge; mothership is a node only
+          mothership-not-control = pkgs.runCommand "check-mothership-node" { } ''
+            test "${if host.mothership.mesh.controlPlane then "true" else "false"}" = "false"
             touch $out
           '';
           microvms-disabled = pkgs.runCommand "check-microvms-disabled" { } ''
             test "${if host.mothership.microvms.enable then "true" else "false"}" = "false"
+            touch $out
+          '';
+          edge-hostname = pkgs.runCommand "check-edge-hostname" { } ''
+            test "${self.nixosConfigurations.edge.config.networking.hostName}" = "edge"
+            touch $out
+          '';
+          edge-control = pkgs.runCommand "check-edge-control" { } ''
+            test "${
+              if self.nixosConfigurations.edge.config.mothership.mesh.controlPlane then "true" else "false"
+            }" = "true"
             touch $out
           '';
         }
