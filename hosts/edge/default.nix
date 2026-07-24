@@ -18,9 +18,33 @@
 
   networking.hostName = "edge";
   networking.hostId = "e5a1c0de";
-  networking.useDHCP = lib.mkDefault true;
 
-  # Hetzner Cloud CX* is usually /dev/sda; check with lsblk on Ubuntu first
+  # Hetzner Cloud / Robot: DHCP on any ethernet; avoid missing the NIC after install
+  networking.usePredictableInterfaceNames = false; # keep eth0 like rescue
+  networking.useDHCP = false;
+  networking.interfaces.eth0.useDHCP = true;
+  # Hetzner Cloud often needs this gateway for /32 assignments if DHCP is thin
+  # (harmless if DHCP already provides a route)
+  networking.defaultGateway = lib.mkDefault {
+    address = "172.31.1.1";
+    interface = "eth0";
+  };
+  networking.nameservers = lib.mkDefault [
+    "185.12.64.1"
+    "185.12.64.2"
+  ];
+
+  systemd.network.enable = true;
+  systemd.network.networks."10-eth0" = {
+    matchConfig.Name = "eth0";
+    networkConfig = {
+      DHCP = "yes";
+      IPv6AcceptRA = true;
+    };
+    linkConfig.RequiredForOnline = "routable";
+  };
+
+  # Hetzner Cloud CX* is usually /dev/sda
   mothership.edge.diskDevice = "/dev/sda";
 
   boot.loader.systemd-boot.enable = true;
