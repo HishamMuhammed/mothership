@@ -1,6 +1,7 @@
-# hosts/edge — public control plane (VPS @ 178.105.120.5).
-# install: Ubuntu (or any SSH Linux) → nixos-anywhere --flake .#edge
-# day-2:  sudo nixos-rebuild switch --flake .#edge
+# hosts/edge — public front door only (VPS @ 178.105.120.5).
+# WireGuard reverse tunnel + nginx → mothership Headscale.
+# install: nixos-anywhere --flake .#edge
+# day-2:  nixos-rebuild switch --flake .#edge  (or deploy from laptop)
 {
   lib,
   pkgs,
@@ -9,22 +10,21 @@
 {
   imports = [
     ./disko.nix
+    ./hardware-configuration.nix
     ../../modules/base.nix
     ../../modules/admins.nix
     ../../modules/tools.nix
-    ../../modules/mesh/headscale.nix
-    ../../modules/mesh/tailscale.nix
+    ../../modules/mesh # WG front door + optional mesh client
+    ../../modules/bastion.nix # public ssh you@you.domain → VM
+    ../../modules/member-publish.nix # public http you.domain → VM:port
   ];
 
   networking.hostName = "edge";
   networking.hostId = "e5a1c0de";
 
-  # Hetzner Cloud / Robot: DHCP on any ethernet; avoid missing the NIC after install
   networking.usePredictableInterfaceNames = false; # keep eth0 like rescue
   networking.useDHCP = false;
   networking.interfaces.eth0.useDHCP = true;
-  # Hetzner Cloud often needs this gateway for /32 assignments if DHCP is thin
-  # (harmless if DHCP already provides a route)
   networking.defaultGateway = lib.mkDefault {
     address = "172.31.1.1";
     interface = "eth0";
@@ -44,26 +44,53 @@
     linkConfig.RequiredForOnline = "routable";
   };
 
-  # Hetzner Cloud CX* is usually /dev/sda
   mothership.edge.diskDevice = "/dev/sda";
 
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
   boot.loader.grub.enable = lib.mkForce false;
 
+  # mesh client only — Headscale is on mothership
   mothership.mesh = {
     enable = true;
-    controlPlane = true;
-    baseDomain = "mesh.tinkerhub";
+    controlPlane = false;
+    baseDomain = "mothership";
     mothershipIPv4 = "100.64.0.1";
     serverUrl = "http://178.105.120.5:8080";
+
+    frontDoor = {
+      enable = true;
+      role = "edge";
+      edgePublicKey = "3ZDVjxugaiQTZEuuSVrDxYlfPxywzv/wUYAh9tdit3M=";
+      homePublicKey = "MOYEB3uBcV3c/mBBGfyMTAwIFQ9OxpbruwdljG/o8Wo=";
+      edgeEndpoint = "178.105.120.5:51820";
+    };
+  };
+
+  # public member SSH: ssh alvin@alvin.tharavad.xyz  (DNS * → edge)
+  mothership.bastion = {
+    enable = true;
+    publicDomain = "tharavad.xyz";
+    jumpHost = "10.99.0.2"; # mothership over WG
+  };
+
+  # public member HTTP: http://alvin.tharavad.xyz → VM publish ports
+  mothership.memberPublish = {
+    enable = true;
+    role = "edge";
+    publicDomain = "tharavad.xyz";
+    mothershipTunnelIP = "10.99.0.2";
   };
 
   networking.firewall.allowedTCPPorts = [
     22
-    8080
+    80 # member HTTP publish
+    8080 # nginx → Headscale via WG (ops)
   ];
-  networking.firewall.allowedUDPPorts = [ 41641 ];
+  networking.firewall.allowedUDPPorts = [
+    51820 # WireGuard front door
+    41641 # tailscale
+  ];
 
   environment.systemPackages = with pkgs; [
     git

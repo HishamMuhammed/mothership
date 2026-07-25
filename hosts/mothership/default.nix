@@ -28,6 +28,8 @@ in
     ../../modules/deck
     ../../modules/mesh
     ../../modules/microvms
+    ../../modules/bastion.nix
+    ../../modules/member-publish.nix
   ]
   ++ (
     if useDisko then
@@ -44,20 +46,36 @@ in
   networking.networkmanager.enable = true;
   networking.useDHCP = lib.mkDefault true;
 
-  # Headscale runs on edge (VPS). This metal is a mesh node + fat services host.
+  # Headscale lives here; edge is WG reverse + nginx front door only.
   mothership.mesh = {
     enable = true;
-    controlPlane = false;
-    baseDomain = "mesh.tinkerhub";
-    mothershipIPv4 = "100.64.0.1"; # reserved for edge; this host gets next sequential
+    controlPlane = true;
+    baseDomain = "mothership"; # MagicDNS: alvin.mothership
+    mothershipIPv4 = "100.64.0.1";
     serverUrl = "http://178.105.120.5:8080";
+
+    frontDoor = {
+      enable = true;
+      role = "home";
+      edgePublicKey = "3ZDVjxugaiQTZEuuSVrDxYlfPxywzv/wUYAh9tdit3M=";
+      homePublicKey = "MOYEB3uBcV3c/mBBGfyMTAwIFQ9OxpbruwdljG/o8Wo=";
+      edgeEndpoint = "178.105.120.5:51820";
+    };
   };
 
   # private bridge for loki/grafana/mattermost/vaultwarden
   mothership.deck.network.enable = true;
 
-  # guests after host is stable
-  mothership.microvms.enable = false;
+  # member VMs: user-vms/*.nix
+  # public: ssh you@you.<domain> via edge bastion; mesh is internal only
+  mothership.microvms.enable = true;
+  mothership.bastion.trustBastionKey = true;
+  mothership.memberPublish = {
+    enable = true;
+    role = "home";
+    publicDomain = "tharavad.xyz";
+    mothershipTunnelIP = "10.99.0.2";
+  };
 
   hardware.facter.reportPath = lib.mkIf (builtins.pathExists ./facter.json) ./facter.json;
 
