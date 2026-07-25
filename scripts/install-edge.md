@@ -1,5 +1,8 @@
 # install edge via Ubuntu + nixos-anywhere
 
+**Role:** public front door only (WireGuard reverse + nginx → mothership Headscale).  
+Not the control plane. After first boot: `scripts/install-wg-front-keys edge`.
+
 **Destructive:** wipes the VPS system disk. IP `178.105.120.5` should stay if you rebuild in-place.
 
 ## 1. Rebuild VPS as Ubuntu
@@ -63,43 +66,22 @@ nix run github:nix-community/nixos-anywhere -- \
 
 ```bash
 ssh root@178.105.120.5
-# or
-ssh nixos@178.105.120.5   # if you use nixos user from admins.nix
-
 hostname   # edge
-systemctl is-active headscale sshd
+# from laptop: scripts/install-wg-front-keys edge
+systemctl is-active nginx sshd
+wg show wg-front
 curl -sS -m 3 -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/
+# 200 only when mothership WG + Headscale are up
 ```
 
-## 5. Mesh bootstrap on edge
+## 5. Mesh bootstrap (on mothership)
 
 ```bash
 sudo -u headscale headscale users create tinkerhub
 KEY=$(sudo -u headscale headscale preauthkeys create -u 1 --reusable --expiration 168h)
 echo "$KEY"
-sudo tailscale up \
-  --login-server=http://127.0.0.1:8080 \
-  --authkey="$KEY" \
-  --hostname=edge \
-  --reset
-tailscale ip -4   # expect 100.64.0.1
+sudo tailscale up --login-server=http://178.105.120.5:8080 --authkey="$KEY" --hostname=mothership --reset
+
+# edge / laptops use the same public URL
+sudo tailscale up --login-server=http://178.105.120.5:8080 --authkey="$KEY" --hostname=<name> --reset
 ```
-
-## 6. Point mothership + laptop at the VPS
-
-```bash
-# mothership / mac
-sudo tailscale up \
-  --login-server=http://178.105.120.5:8080 \
-  --authkey="$KEY" \
-  --hostname=mothership \
-  --reset
-```
-
-Optional Hetzner DNS:
-
-```yaml
-# A headscale.example  →  178.105.120.5
-```
-
-then set `serverUrl = "http://headscale.example:8080"` (or https later).

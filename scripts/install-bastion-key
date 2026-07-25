@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# install edge bastion private key (not in git).
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+KEY="$ROOT/secrets/bastion/id_ed25519"
+EDGE="${EDGE_HOST:-root@178.105.120.5}"
+DEST=/var/lib/mothership/bastion/id_ed25519
+
+if [[ ! -f $KEY ]]; then
+  echo "missing $KEY — generate: ssh-keygen -t ed25519 -f secrets/bastion/id_ed25519 -C mothership-bastion" >&2
+  exit 1
+fi
+
+echo "→ $EDGE:$DEST"
+ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$EDGE" \
+  "mkdir -p /var/lib/mothership/bastion; getent group bastion >/dev/null || groupadd bastion; chown root:bastion /var/lib/mothership/bastion; chmod 750 /var/lib/mothership/bastion"
+scp -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$KEY" "$EDGE:$DEST"
+ssh -o BatchMode=yes "$EDGE" "chown root:bastion $DEST && chmod 440 $DEST && ls -la $DEST"
+echo "done — rebuild edge if bastion module just enabled"
