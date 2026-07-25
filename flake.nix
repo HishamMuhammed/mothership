@@ -48,7 +48,7 @@
         ];
       };
 
-      # public control plane (VPS) — Headscale + static public IP
+      # public front door (VPS) — WG reverse + nginx → mothership Headscale
       # install: nixos-anywhere --flake .#edge root@178.105.120.5
       nixosConfigurations.edge = nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
@@ -113,22 +113,28 @@
             test "${host.mothership.mesh.mothershipIPv4}" = "100.64.0.1"
             touch $out
           '';
-          # control plane is edge; mothership is a node only
-          mothership-not-control = pkgs.runCommand "check-mothership-node" { } ''
-            test "${if host.mothership.mesh.controlPlane then "true" else "false"}" = "false"
+          # control plane is mothership; edge is proxy-only front door
+          mothership-is-control = pkgs.runCommand "check-mothership-control" { } ''
+            test "${if host.mothership.mesh.controlPlane then "true" else "false"}" = "true"
             touch $out
           '';
-          microvms-disabled = pkgs.runCommand "check-microvms-disabled" { } ''
-            test "${if host.mothership.microvms.enable then "true" else "false"}" = "false"
+          microvms-enabled = pkgs.runCommand "check-microvms-enabled" { } ''
+            test "${if host.mothership.microvms.enable then "true" else "false"}" = "true"
             touch $out
           '';
           edge-hostname = pkgs.runCommand "check-edge-hostname" { } ''
             test "${self.nixosConfigurations.edge.config.networking.hostName}" = "edge"
             touch $out
           '';
-          edge-control = pkgs.runCommand "check-edge-control" { } ''
+          edge-not-control = pkgs.runCommand "check-edge-not-control" { } ''
             test "${
               if self.nixosConfigurations.edge.config.mothership.mesh.controlPlane then "true" else "false"
+            }" = "false"
+            touch $out
+          '';
+          edge-front-door = pkgs.runCommand "check-edge-front-door" { } ''
+            test "${
+              if self.nixosConfigurations.edge.config.mothership.mesh.frontDoor.enable then "true" else "false"
             }" = "true"
             touch $out
           '';

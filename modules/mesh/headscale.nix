@@ -1,5 +1,5 @@
 # headscale — coordination server (control plane).
-# run on edge (VPS). mothership is a node, not the control plane.
+# lives on mothership; public clients reach it via edge front door (WG + nginx).
 {
   config,
   lib,
@@ -13,19 +13,20 @@ in
   options.mothership.mesh = {
     enable = lib.mkEnableOption "mesh stack options (headscale and/or tailscale)";
 
-    # true on edge VPS; false on mothership metal
+    # true on mothership; false on edge (edge is proxy-only front door)
     controlPlane = lib.mkEnableOption "run Headscale on this host";
 
     baseDomain = lib.mkOption {
       type = lib.types.str;
-      default = "mesh.tinkerhub";
-      description = "MagicDNS base. Nodes become <hostname>.<baseDomain>.";
+      # → ssh alvin@alvin.mothership  (and short name: ssh alvin@alvin via search domain)
+      default = "mothership";
+      description = "MagicDNS base. Nodes become <hostname>.<baseDomain> (e.g. alvin.mothership).";
     };
 
     mothershipIPv4 = lib.mkOption {
       type = lib.types.str;
       default = "100.64.0.1";
-      description = "Reserved mesh IPv4 for the control-plane node (edge).";
+      description = "Preferred mesh IPv4 for DNS records (usually first joined node / mothership).";
     };
 
     prefixV4 = lib.mkOption {
@@ -41,13 +42,14 @@ in
     serverUrl = lib.mkOption {
       type = lib.types.str;
       default = "http://178.105.120.5:8080";
-      description = "Public Headscale URL (VPS static IP). Clients use as --login-server.";
+      description = "Public Headscale URL clients use as --login-server (edge front door).";
     };
   };
 
   config = lib.mkIf (cfg.enable && cfg.controlPlane) {
     services.headscale = {
       enable = true;
+      # all interfaces; public exposure blocked by firewall (only wg-front allows 8080)
       address = "0.0.0.0";
       port = cfg.listenPort;
 
@@ -87,9 +89,9 @@ in
       };
     };
 
+    # do NOT open listenPort on the public firewall — only via wg-front (front-door.nix)
     networking.firewall = {
       trustedInterfaces = [ "tailscale0" ];
-      allowedTCPPorts = [ cfg.listenPort ];
       allowedUDPPorts = [ config.services.tailscale.port ];
       checkReversePath = "loose";
     };

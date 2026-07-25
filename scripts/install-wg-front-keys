@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# install WireGuard private keys for the front door (not in git).
+# usage:
+#   scripts/install-wg-front-keys              # both hosts (default)
+#   scripts/install-wg-front-keys edge
+#   scripts/install-wg-front-keys mothership
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SECRETS="$ROOT/secrets/wg-front"
+DEST=/var/lib/mothership/wg-front/private.key
+
+EDGE_HOST="${EDGE_HOST:-root@178.105.120.5}"
+MOTHERSHIP_HOST="${MOTHERSHIP_HOST:-root@192.168.11.199}"
+
+target="${1:-all}"
+
+install_remote() {
+  local host=$1 keyfile=$2
+  if [[ ! -f $keyfile ]]; then
+    echo "missing $keyfile — generate with: nix shell nixpkgs#wireguard-tools -c wg genkey" >&2
+    exit 1
+  fi
+  echo "→ $host:$DEST"
+  ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$host" "mkdir -p /var/lib/mothership/wg-front && chmod 700 /var/lib/mothership/wg-front"
+  scp -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$keyfile" "$host:$DEST"
+  ssh -o BatchMode=yes "$host" "chmod 400 $DEST && chown root:root $DEST && ls -la $DEST"
+}
+
+case "$target" in
+  edge)
+    install_remote "$EDGE_HOST" "$SECRETS/edge.priv"
+    ;;
+  mothership | home)
+    install_remote "$MOTHERSHIP_HOST" "$SECRETS/mothership.priv"
+    ;;
+  all)
+    install_remote "$EDGE_HOST" "$SECRETS/edge.priv"
+    install_remote "$MOTHERSHIP_HOST" "$SECRETS/mothership.priv"
+    ;;
+  *)
+    echo "usage: $0 [all|edge|mothership]" >&2
+    exit 1
+    ;;
+esac
+
+echo "done. rebuild both hosts, then: ssh … 'wg show'"
