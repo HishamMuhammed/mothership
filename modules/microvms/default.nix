@@ -36,7 +36,9 @@ let
       inherit member;
       mesh = {
         mothershipIPv4 = mesh.mothershipIPv4 or "100.64.0.1";
-        baseDomain = mesh.baseDomain or "mesh.tinkerhub";
+        baseDomain = mesh.baseDomain or "mothership";
+        # public front door — guests NAT out br-members and join like any peer
+        serverUrl = mesh.serverUrl or "http://178.105.120.5:8080";
         bridgeAddress = cfg.bridgeAddress;
       };
     }
@@ -60,8 +62,9 @@ in
 
     bridgeAddress = lib.mkOption {
       type = lib.types.str;
-      default = "10.42.0.1";
-      description = "host IP on br-members; guests DHCP off this; headscale open here too";
+      # NOT 10.42.0.0/16 — that is br-deck (club services)
+      default = "10.43.0.1";
+      description = "host IP on br-members; guests DHCP off this";
     };
 
     bridgePrefix = lib.mkOption {
@@ -108,8 +111,95 @@ in
       };
     };
 
-    # enslave each guest tap into the bridge after microvm creates it
-    systemd.services = lib.mapAttrs' (
+    networking.firewall.trustedInterfaces = [
+      "br-members"
+      "tailscale0"
+    ];
+    networking.firewall.interfaces.br-members.allowedTCPPorts = [
+      22
+      8080 # optional local headscale; guests primarily use public serverUrl via NAT
+    ];
+    networking.nat = {
+      enable = true;
+      enableIPv6 = false;
+      internalInterfaces = [ "br-members" ];
+      externalInterface = lib.mkDefault "eno1";
+    };
+    boot.kernel.sysctl."net.ipv4.ip_forward" = 1;
+
+    # ZFS dataset per member (mkdir fallback without tank)
+    system.activationScripts.mothership-user-datasets = lib.stringAfter [ "users" ] ''
+      mkdir -p /var/lib/mothership/users /var/lib/mothership/mesh
+      ${lib.concatStringsSep "\n" (
+        lib.mapAttrsToList (
+          name: m:
+          let
+            ds = "tank/users/${name}";
+            mnt = "/var/lib/mothership/users/${name}";
+          in
+          ''
+            if command -v zfs >/dev/null 2>&1 && zfs list -H -o name tank >/dev/null 2>&1; then
+              if ! zfs list -H -o name ${ds} >/dev/null 2>&1; then
+                zfs create -o mountpoint=${mnt} -o refquota=${m.tier.refquota} ${ds} || true
+              else
+                zfs set refquota=${m.tier.refquota} ${ds} || true
+                zfs set mountpoint=${mnt} ${ds} || true
+              fi
+            else
+              mkdir -p ${mnt}
+            fi
+            chmod 755 ${mnt} || true
+          ''
+        ) enabledMembers
+      )}
+    '';
+
+    # preauth + tap enslavement
+    systemd.services = {
+      mothership-mesh-preauth = {
+        description = "provision member mesh preauth keys for microVMs";
+        after = [ "headscale.service" ];
+        requires = [ "headscale.service" ];
+        wantedBy = [ "multi-user.target" ];
+        before = map (n: "microvm@${n}.service") (lib.attrNames enabledMembers);
+        path = [
+          config.services.headscale.package
+          pkgs.coreutils
+          pkgs.gnugrep
+          pkgs.su
+        ];
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+        };
+        script = ''
+          set -euo pipefail
+          mkdir -p /var/lib/mothership/mesh
+          KEYFILE=/var/lib/mothership/mesh/member.preauth
+          hs() { su -s ${pkgs.runtimeShell} headscale -c "headscale $*"; }
+          if [ ! -s "$KEYFILE" ]; then
+            if ! hs users list 2>/dev/null | grep -q tinkerhub; then
+              hs users create tinkerhub || true
+            fi
+            key=$(hs preauthkeys create --user tinkerhub --reusable --expiration 8760h 2>/dev/null \
+              || hs preauthkeys create -u 1 --reusable --expiration 8760h)
+            # strip any non-key noise; key is one token
+            key=$(printf '%s\n' "$key" | tr -d '\r' | tail -n1)
+            printf '%s\n' "$key" > "$KEYFILE"
+            chmod 600 "$KEYFILE"
+            echo "created member preauth"
+          fi
+          ${lib.concatStringsSep "\n" (
+            lib.mapAttrsToList (name: _: ''
+              mkdir -p /var/lib/mothership/users/${name}
+              cp -f "$KEYFILE" /var/lib/mothership/users/${name}/tailscale.authkey
+              chmod 644 /var/lib/mothership/users/${name}/tailscale.authkey
+            '') enabledMembers
+          )}
+        '';
+      };
+    }
+    // lib.mapAttrs' (
       name: m:
       lib.nameValuePair "microvm-br-${name}" {
         description = "enslave ${m.tapId} → br-members";
@@ -128,61 +218,10 @@ in
       }
     ) enabledMembers;
 
-    networking.firewall.trustedInterfaces = [
-      "br-members"
-      "tailscale0"
-    ];
-    # guests reach headscale on the bridge IP before they have mesh
-    networking.firewall.interfaces.br-members.allowedTCPPorts = [
-      8080
-      22
-    ];
-    networking.nat = {
-      enable = true;
-      enableIPv6 = false;
-      internalInterfaces = [ "br-members" ];
-      # externalInterface left unset → NAT still works via default route on many setups;
-      # pin on metal if needed: networking.nat.externalInterface = "eno1";
-    };
-    boot.kernel.sysctl."net.ipv4.ip_forward" = 1;
-
-    # also advertise headscale on bridge IP for guest bootstrap
-    # (host mesh module already binds 0.0.0.0:8080)
-
-    # ZFS dataset per member
-    system.activationScripts.mothership-user-datasets = lib.stringAfter [ "users" ] ''
-      mkdir -p /var/lib/mothership/users
-      ${lib.concatStringsSep "\n" (
-        lib.mapAttrsToList (
-          name: m:
-          let
-            ds = "tank/users/${name}";
-            mnt = "/var/lib/mothership/users/${name}";
-          in
-          ''
-            if command -v zfs >/dev/null 2>&1; then
-              if ! zfs list -H -o name ${ds} >/dev/null 2>&1; then
-                zfs create -o mountpoint=${mnt} -o refquota=${m.tier.refquota} ${ds} || true
-              else
-                zfs set refquota=${m.tier.refquota} ${ds} || true
-                zfs set mountpoint=${mnt} ${ds} || true
-              fi
-            else
-              mkdir -p ${mnt}
-            fi
-            chmod 755 ${mnt} || true
-          ''
-        ) enabledMembers
-      )}
-    '';
-
-    # host module already puts each vms.*.autostart=true into microvm.autostart
     microvm.vms = lib.mapAttrs (_name: m: {
       config = m.guest;
       autostart = true;
     }) enabledMembers;
-
-    # microvm CLI comes from microvm.nixosModules.host — do not pkgs.microvm
 
     environment.etc."mothership/members.txt".text =
       lib.concatStringsSep "\n" (
@@ -193,6 +232,7 @@ in
           }${lib.optionalString (m.github != null) "\tgithub=${m.github}"}"
         ) members
       )
-      + "\n# mesh IP: inside guest → tailscale ip -4\n# local: 10.42.0.0/${toString cfg.bridgePrefix} via br-members\n";
+      + "\n# mesh: ssh ${lib.concatMapStringsSep " | " (n: "${n}@${n}") (lib.attrNames enabledMembers)}\n"
+      + "# local DHCP: ${cfg.bridgeAddress}/${toString cfg.bridgePrefix} via br-members\n";
   };
 }

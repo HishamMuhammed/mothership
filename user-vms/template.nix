@@ -1,10 +1,13 @@
 # copy to user-vms/<name>.nix — name must match ^[a-z][a-z0-9-]{1,15}$
 # this file is NOT loaded (template.nix is ignored).
 #
-# unique IP: guest runs tailscale → headscale assigns 100.64.x.x
-# and MagicDNS <name>.mesh.tinkerhub after join.
+# after merge:
+#   ssh you@you.tharavad.xyz
+#   http://you.tharavad.xyz  (if publish set — run a server on that port)
+#
+# mesh/Headscale is internal only — you do not join a VPN.
 {
-  # github = "yourhandle";  # optional, for humans reading the pr
+  # github = "yourhandle";
   tier = "small"; # small | medium | large
   enabled = true;
 
@@ -12,4 +15,11 @@
   keys = [
     # "ssh-ed25519 AAAA… comment"
   ];
+
+  # optional public HTTP (DNS wildcard already points at edge)
+  # publish = [
+  #   { port = 3000; }                          # → http://you.tharavad.xyz
+  #   { subdomain = "blog"; port = 8080; }      # → http://blog.tharavad.xyz
+  # ];
 }
+
