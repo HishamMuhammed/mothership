@@ -4,3 +4,4 @@ result-*
 .pre-commit-config.yaml
 *.qcow2
 .DS_Store
+secrets/
