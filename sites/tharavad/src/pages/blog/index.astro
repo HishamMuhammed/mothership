@@ -1,0 +1,33 @@
+---
+import Base from "../../layouts/Base.astro";
+import { getCollection } from "astro:content";
+
+const posts = (await getCollection("blog")).sort((a, b) =>
+  a.data.date < b.data.date ? 1 : -1,
+);
+---
+<Base title="Notes" description="Short notes. Separate from the brochure.">
+  <h1>Notes</h1>
+
+  <p>
+    Essays and rants that would otherwise bloat the front door. One page, one
+    topic, linked from a list. Not a feed. Not engagement. Plain text over
+    chrome.
+  </p>
+
+  <ul>
+    {
+      posts.map((post) => (
+        <li>
+          <a href={`/blog/${post.id}/`}>{post.data.title}</a>
+          <span class="note">
+            {" "}
+            · {post.data.date} · {post.data.author}
+          </span>
+          <br />
+          <span class="note">{post.data.summary}</span>
+        </li>
+      ))
+    }
+  </ul>
+</Base>

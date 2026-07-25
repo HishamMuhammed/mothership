@@ -1,0 +1,37 @@
+---
+import Menu from "../components/Menu.astro";
+import "../styles/global.css";
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+const {
+  title = "tharavad",
+  description = "An ancestral house on the internet. A Linux box for nerds who still care.",
+} = Astro.props;
+const fullTitle = title === "tharavad" ? "tharavad" : `${title} · tharavad`;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#ffffff" />
+    <title>{fullTitle}</title>
+  </head>
+  <body>
+    <Menu />
+    <div id="content">
+      <slot />
+      <p class="thanks">
+        <a href="https://tinkerhub.org">TinkerHub</a>
+        ·
+        <a href="https://github.com/tinkerhub0/mothership">source</a>
+        ·
+        <a href="/authors/">authors</a>
+      </p>
+    </div>
+  </body>
+</html>

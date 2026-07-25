@@ -17,6 +17,7 @@
     ../../modules/mesh # WG front door + optional mesh client
     ../../modules/bastion.nix # public ssh you@you.domain → VM
     ../../modules/member-publish.nix # public http you.domain → VM:port
+    ../../modules/landing.nix # tharavad.xyz Astro landing
   ];
 
   networking.hostName = "edge";
@@ -80,6 +81,12 @@
     role = "edge";
     publicDomain = "tharavad.xyz";
     mothershipTunnelIP = "10.99.0.2";
+  };
+
+  # apex landing
+  mothership.landing = {
+    enable = true;
+    domain = "tharavad.xyz";
   };
 
   networking.firewall.allowedTCPPorts = [

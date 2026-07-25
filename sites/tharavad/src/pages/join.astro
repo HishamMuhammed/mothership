@@ -1,0 +1,53 @@
+---
+import Base from "../layouts/Base.astro";
+---
+<Base title="Join" description="How to get a VM on tharavad.">
+  <h1>Join</h1>
+
+  <p>
+    You get a machine by opening a pull request. That is the whole product
+    surface for membership.
+  </p>
+
+  <ol>
+    <li>
+      Fork
+      <a href="https://github.com/tinkerhub0/mothership"
+        >github.com/tinkerhub0/mothership</a
+      >.
+    </li>
+    <li>
+      Add <code>user-vms/&lt;you&gt;.nix</code> (name is lowercase,
+      <code>a-z0-9-</code>, short).
+    </li>
+    <li>Put your SSH public key in <code>keys</code>.</li>
+    <li>Open a PR. After merge and rebuild, the guest exists.</li>
+  </ol>
+
+  <pre>{`# user-vms/you.nix
+{
+  tier = "small";   # small | medium | large
+  enabled = true;
+  keys = [
+    "ssh-ed25519 AAAA… you@host"
+  ];
+  # optional:
+  # publish = [ { port = 3000; } ];
+}`}</pre>
+
+  <p>
+    Paste a key from <code>~/.ssh/id_ed25519.pub</code> or
+    <code>https://github.com/&lt;you&gt;.keys</code>. Empty keys will not
+    provision.
+  </p>
+
+  <p>
+    After it lands: <a href="/ssh">SSH</a>. If you want a public HTTP port:
+    <a href="/publish">Publish</a>.
+  </p>
+
+  <p>
+    Questions, stuck, or just saying hi:
+    <a href="https://x.com/notrlyalvin">x.com/notrlyalvin</a>.
+  </p>
+</Base>

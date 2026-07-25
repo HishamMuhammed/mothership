@@ -1,0 +1,102 @@
+---
+import Base from "../layouts/Base.astro";
+---
+<Base title="About" description="What tharavad is for.">
+  <h1>About</h1>
+
+  <p>
+    We love computers. We hate the part of the internet that only performs
+    caring about them.
+  </p>
+
+  <p>
+    Tharavad is a public server for people who want a real box: a place to
+    install things, break things, deploy something dumb at 2am, and learn
+    without waiting for permission from a platform. It is not a course. It is
+    not a vibe. It is hardware and software that still answers when you SSH in.
+  </p>
+
+  <h3>TinkerHub brought the iron</h3>
+
+  <p>
+    Credit where it is due:
+    <a href="https://tinkerhub.org">TinkerHub</a> bought a server so we could
+    mess with it without a five-year roadmap, then open the cycles to the
+    community instead of hoarding a lonely lab toy. They supplied the cruft-free
+    hardware. We frob the bits, mung the config until it boots, twiddle DNS and
+    guests, and try not to lose the root partition on a Friday night.
+  </p>
+
+  <p>
+    The deal is simple and slightly unserious on purpose. Real metal and a
+    public front door go in. Out comes a place where more than one nerd can have
+    a shell. If that sounds like “we bought a box so people could have a
+    playground,” yes. That is the gag, except the playground has SSH keys and
+    git history instead of slides.
+  </p>
+
+  <p>
+    So when you land a VM here, you are not on a private vanity rack. You are on
+    infrastructure TinkerHub was willing to fund so the learning stays
+    hands-on: less slide deck, more <code>ssh</code>, more “why is this unit
+    failed,” more shipping something small that actually runs.
+  </p>
+
+  <h3>Where we are</h3>
+
+  <p>
+    The default internet today is rented. Your “server” is someone else’s
+    control panel. Your “community” is a feed optimized to keep you scrolling.
+    Tutorials are infinite, and so is noise. A lot of people who could have
+    become dangerous with a shell never get past a signup wall, a credit card,
+    or the feeling that the real rooms are closed.
+  </p>
+
+  <p>
+    That is a waste. The tools are better than ever. What is scarce is a place
+    that treats you like a peer instead of a user metric. Forums used to do
+    that. University labs used to do that. This is one more corner.
+  </p>
+
+  <h3>What we can do here</h3>
+
+  <ul>
+    <li>
+      Get a <strong>real NixOS guest</strong> under your name, not a line in
+      someone else’s passwd file.
+    </li>
+    <li>
+      <strong>SSH from anywhere</strong> with a normal key:
+      <code>you@you.tharavad.xyz</code>.
+    </li>
+    <li>
+      <strong>Publish a small service</strong> if you want:
+      <code>http://you.tharavad.xyz</code> on a port you declare in git.
+    </li>
+    <li>
+      Leave a trail that matters: membership is a PR. The history is readable.
+    </li>
+  </ul>
+
+  <p>
+    Longer rants live under <a href="/blog/">Notes</a> so this page stays a
+    door, not a dump. Start with
+    <a href="/blog/people-we-stand-on/">People we stand on</a> and
+    <a href="/blog/on-http/">On HTTP</a>.
+  </p>
+
+  <p>
+    Membership is boring on purpose. You open a pull request with your SSH key.
+    Someone reviews it. After merge, you get a guest under your name. Your mess
+    stays in your guest. Shape of the machine:
+    <a href="https://github.com/tinkerhub0/mothership">mothership</a>. Shell:
+    <a href="/join">Join</a>.
+  </p>
+
+  <h3>Elsewhere</h3>
+  <p class="notop">
+    <a href="https://tinkerhub.org">TinkerHub</a> ·
+    <a href="https://x.com/notrlyalvin">notrlyalvin</a> (maintainer) ·
+    <a href="https://github.com/tinkerhub0/mothership">source</a>
+  </p>
+</Base>

@@ -1,0 +1,40 @@
+---
+const path = Astro.url.pathname.replace(/\/$/, "") || "/";
+const items = [
+  { href: "/", label: "Home", match: "/" },
+  { href: "/about", label: "About", match: "/about" },
+  { href: "/join", label: "Join", match: "/join" },
+  { href: "/ssh", label: "SSH", match: "/ssh" },
+  { href: "/publish", label: "Publish", match: "/publish" },
+  { href: "/blog", label: "Notes", match: "/blog", prefix: true },
+  { href: "/authors", label: "Authors", match: "/authors" },
+  { href: "https://github.com/tinkerhub0/mothership", label: "Source", external: true },
+];
+---
+<div id="menu">
+  <a class="title" href="/">tharavad</a>
+  <ul>
+    {
+      items.map((item) => {
+        const current = item.external
+          ? false
+          : item.prefix
+            ? path === item.match || path.startsWith(item.match + "/")
+            : path === item.match;
+        return (
+          <li>
+            <a
+              href={item.href}
+              class={current ? "current" : undefined}
+              target={item.external ? "_blank" : undefined}
+              rel={item.external ? "noopener noreferrer" : undefined}
+            >
+              {item.label}
+            </a>
+          </li>
+        );
+      })
+    }
+  </ul>
+</div>
+<div id="left">&nbsp;</div>

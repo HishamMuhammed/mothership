@@ -5,3 +5,5 @@ result-*
 *.qcow2
 .DS_Store
 secrets/
+sites/tharavad/node_modules/
+sites/tharavad/.astro/

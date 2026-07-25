@@ -1,0 +1,38 @@
+---
+import Base from "../layouts/Base.astro";
+---
+<Base title="SSH" description="How to log into your tharavad VM.">
+  <h1>SSH</h1>
+
+  <p>
+    You do not need Tailscale, a VPN app, or a mesh client on your laptop. Plain
+    OpenSSH is enough. The website may be cleartext on purpose; your login is
+    not. Keys beat padlocks for this house.
+  </p>
+
+  <pre>{`ssh you@you.tharavad.xyz
+
+# example
+ssh alvin@alvin.tharavad.xyz`}</pre>
+
+  <p>
+    The hostname is your member name twice on purpose: user and machine match
+    the file you added under <code>user-vms/</code>. DNS for
+    <code>*.tharavad.xyz</code> points at the public front door; that door jumps
+    you into your guest.
+  </p>
+
+  <p>
+    If it fails, check that your PR actually merged, that the key in the file is
+    the private key you are offering, and that you are not still waiting on a
+    rebuild. Still stuck: message
+    <a href="https://x.com/notrlyalvin">@notrlyalvin</a>.
+  </p>
+
+  <p>
+    Inside the box you have NixOS. There is no <code>apt</code>. Try
+    <code>nix run nixpkgs#fastfetch</code> or
+    <code>nix shell nixpkgs#python3</code>. Break things. That was the point when
+    you were 13, and it is still the point.
+  </p>
+</Base>
