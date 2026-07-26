@@ -3,6 +3,7 @@
 git is the IdP. nix compiles reality. one box.
 
 read **[why-this-exist](why-this-exist)** before you touch anything.
+agents: [AGENTS.md](AGENTS.md)
 
 ```bash
 nix develop
@@ -21,6 +22,7 @@ user-vms/           members (one .nix each) — git is the IdP
 lib/mkMemberVM.nix  one file → guest
 scripts/signup      writes a member file for a PR (not a control plane)
 why-this-exist      the only prose we keep
+AGENTS.md           for models
 ```
 
 unique IP per member: tailscale inside the guest → headscale (`100.64.0.0/10`).
