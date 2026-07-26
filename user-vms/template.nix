@@ -1,4 +1,5 @@
 # copy to user-vms/<name>.nix — name must match ^[a-z][a-z0-9-]{1,15}$
+# name is unique (one file = one seat). taken or reserved → reject.
 # this file is NOT loaded (template.nix is ignored).
 #
 # after merge:

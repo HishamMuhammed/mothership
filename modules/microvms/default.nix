@@ -49,6 +49,10 @@ let
   totalMem = lib.foldl' (a: m: a + m.tier.mem) 0 (lib.attrValues enabledMembers);
 
   memberAssertions = lib.flatten (lib.mapAttrsToList (_: m: m.assertions or [ ]) members);
+
+  policy = import ../../lib/memberPolicy.nix { inherit lib; };
+  reservedHits = lib.filter (n: policy.isReserved n) (lib.attrNames members);
+  githubDupMsgs = policy.duplicateGithubs members;
 in
 {
   options.mothership.microvms = {
@@ -80,10 +84,18 @@ in
         message = "mothership.microvms: total guest mem ${toString totalMem} MiB > max ${toString cfg.maxTotalMemMiB} MiB";
       }
       {
-        assertion = lib.all (
-          name: builtins.match "^[a-z][a-z0-9-]{1,15}$" name != null
-        ) (lib.attrNames members);
-        message = "mothership.microvms: names must match ^[a-z][a-z0-9-]{1,15}$";
+        assertion = lib.all (name: policy.validName name) (lib.attrNames members);
+        message = "mothership.microvms: names must match ${policy.nameRegex} (one file = one seat)";
+      }
+      {
+        # filesystem already unique; this rejects reserved house/system names
+        assertion = reservedHits == [ ];
+        message = "mothership.microvms: name(s) reserved, pick another: ${lib.concatStringsSep ", " reservedHits}";
+      }
+      {
+        # two members cannot claim the same github handle
+        assertion = policy.githubsUnique members;
+        message = "mothership.microvms: duplicate github handle(s), reject: ${lib.concatStringsSep "; " githubDupMsgs}";
       }
     ];
 

@@ -35,17 +35,53 @@ done
 [[ -n "$name" && -n "$key" ]] || usage
 
 if [[ ! "$name" =~ ^[a-z][a-z0-9-]{1,15}$ ]]; then
-  echo "bad name: '$name' (want ^[a-z][a-z0-9-]{1,15}$)" >&2
+  echo "reject: bad name '$name' (want ^[a-z][a-z0-9-]{1,15}$)" >&2
   exit 1
 fi
 case "$tier" in small|medium|large) ;; *)
-  echo "bad tier: $tier" >&2; exit 1 ;;
+  echo "reject: bad tier $tier" >&2; exit 1 ;;
 esac
 
-out="user-vms/${name}.nix"
-if [[ -e "$out" ]]; then
-  echo "already exists: $out" >&2
+# reserved house / system names (keep in sync with lib/memberPolicy.nix)
+reserved_re='^(root|admin|administrator|ubuntu|nixos|git|www|api|mail|ftp|ssh|host|gateway|router|edge|mothership|headscale|bastion|proxy|nginx|deck|template|localhost)$'
+if [[ "$name" =~ $reserved_re ]]; then
+  echo "reject: name '$name' is reserved. pick another." >&2
   exit 1
+fi
+
+out="user-vms/${name}.nix"
+# one name = one seat. second requester loses.
+if [[ -e "$out" ]]; then
+  echo "reject: name taken — $out already exists. pick another name." >&2
+  exit 1
+fi
+lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+
+# belt: any existing member file with same name (case fold; regex already lower)
+shopt -s nullglob
+name_lc="$(lc "$name")"
+for f in user-vms/*.nix; do
+  base="$(basename "$f" .nix)"
+  [[ "$base" == "template" ]] && continue
+  if [[ "$(lc "$base")" == "$name_lc" ]]; then
+    echo "reject: name taken — member '${base}' already exists. pick another." >&2
+    exit 1
+  fi
+done
+
+# same github handle cannot own two seats
+if [[ -n "$github" ]]; then
+  gh_lc="$(lc "$github")"
+  for f in user-vms/*.nix; do
+    base="$(basename "$f" .nix)"
+    [[ "$base" == "template" ]] && continue
+    existing="$(grep -E '^[[:space:]]*github[[:space:]]*=' "$f" 2>/dev/null | head -1 | sed -E 's/.*"([^"]+)".*/\1/' || true)"
+    [[ -z "$existing" ]] && continue
+    if [[ "$(lc "$existing")" == "$gh_lc" ]]; then
+      echo "reject: github '@${github}' already used by member '${base}'. one handle, one seat." >&2
+      exit 1
+    fi
+  done
 fi
 
 {

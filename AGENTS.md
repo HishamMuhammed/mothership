@@ -3,7 +3,8 @@
 git is the IdP. nix compiles. config is the map. read `why-this-exist`.
 
 - member join: one file `user-vms/<you>.nix` from `template.nix`
-- name: `^[a-z][a-z0-9-]{1,15}$` · real ssh pubkey in `keys`
+- name unique + not reserved · `^[a-z][a-z0-9-]{1,15}$` · real ssh pubkey
+- same name or same github as an existing member → reject, pick another
 - do not invent authentik/k8s/terraform · no secrets in git
 - small PRs · no drive-by rewrites · no new docs tree
 - after merge, mothership git-sync provisions the guest
