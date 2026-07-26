@@ -30,6 +30,7 @@ in
     ../../modules/microvms
     ../../modules/bastion.nix
     ../../modules/member-publish.nix
+    ../../modules/git-sync.nix
   ]
   ++ (
     if useDisko then
@@ -75,6 +76,15 @@ in
     role = "home";
     publicDomain = "tharavad.xyz";
     mothershipTunnelIP = "10.99.0.2";
+  };
+
+  # main → metal: path-aware pull + switch (timer ≈ cron)
+  # member-only PRs still switch host (units/bastion/publish) but peers should stay up
+  mothership.gitSync = {
+    enable = true;
+    remote = "https://github.com/tinkerhub0/mothership.git";
+    branch = "main";
+    interval = "2min";
   };
 
   hardware.facter.reportPath = lib.mkIf (builtins.pathExists ./facter.json) ./facter.json;
