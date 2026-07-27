@@ -66,7 +66,8 @@ git remote set-url origin "$REMOTE" 2>/dev/null || git remote add origin "$REMOT
 OLD="$(git rev-parse HEAD)"
 log "fetch origin/$BRANCH (at $OLD)"
 if [[ "$DRY" != "1" ]]; then
-  git fetch --depth 50 origin "$BRANCH"
+  # prune + full tip; depth-only fetch breaks after force-push rewrites
+  git fetch --prune origin "+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}"
 fi
 
 NEW="$(git rev-parse "origin/$BRANCH" 2>/dev/null || true)"
@@ -79,9 +80,12 @@ if [[ "$OLD" == "$NEW" ]]; then
   exit 0
 fi
 
-mapfile -t CHANGED < <(git diff --name-only "$OLD" "$NEW")
+# content diff even when histories diverged (force-push / squash)
+mapfile -t CHANGED < <(git diff --name-only "$OLD" "$NEW" 2>/dev/null || true)
 if [[ ${#CHANGED[@]} -eq 0 ]]; then
-  log "empty diff $OLD..$NEW (odd); still advance"
+  log "empty name-diff $OLD..$NEW; treating as fabric rebuild to be safe"
+  # force a rebuild path rather than silent skip on weird history
+  CHANGED=("flake.nix")
 fi
 
 log "changes $OLD → $NEW:"
@@ -103,16 +107,25 @@ is_member_path() {
 is_fabric_path() {
   case "$1" in
     hosts/mothership/*|modules/*|lib/*|flake.nix|flake.lock) return 0 ;;
-    # member wire also lives here — treat as fabric if edited alone with host
+    # sync script is packaged into the host generation
+    scripts/mothership-git-sync) return 0 ;;
     *) return 1 ;;
   esac
 }
 
 is_irrelevant_path() {
   case "$1" in
-    hosts/edge/*|sites/*|scripts/*|README*|why-this-exist|*.md|.github/*) return 0 ;;
+    hosts/edge/*|sites/*|scripts/*|README*|why-this-exist|*.md|.github/*|AGENTS.md) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+# deploy checkout: always hard-reset to origin (no local commits on metal)
+checkout_origin() {
+  log "reset --hard origin/$BRANCH ($NEW)"
+  git checkout -B "$BRANCH" "origin/$BRANCH"
+  git reset --hard "$NEW"
+  git clean -fd
 }
 
 for f in "${CHANGED[@]:-}"; do
@@ -182,10 +195,10 @@ assert_peers_stable() {
 if [[ "$mode" == "skip" ]]; then
   log "checkout only (no mothership rebuild)"
   if [[ "$DRY" == "1" ]]; then
-    log "dry-run: would ff-only to $NEW"
+    log "dry-run: would reset --hard to $NEW"
     exit 0
   fi
-  git merge --ff-only "$NEW"
+  checkout_origin
   echo "$NEW" >"${STATE_DIR}/last-skip"
   exit 0
 fi
@@ -197,11 +210,11 @@ log "running microvms before activate:"
 cat "$BEFORE" || true
 
 if [[ "$DRY" == "1" ]]; then
-  log "dry-run: would ff-only + nixos-rebuild switch --flake ${SRC}#${FLAKE_HOST} (mode=$mode)"
+  log "dry-run: would reset --hard + nixos-rebuild switch --flake ${SRC}#${FLAKE_HOST} (mode=$mode)"
   exit 0
 fi
 
-git merge --ff-only "$NEW"
+checkout_origin
 
 log "nixos-rebuild switch --flake ${SRC}#${FLAKE_HOST} (mode=$mode)"
 # build+activate on the metal; binary cache keeps this mostly downloads
