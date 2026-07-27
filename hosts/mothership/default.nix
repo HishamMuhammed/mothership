@@ -89,8 +89,9 @@ in
     interval = "2min";
     triggerEdge = {
       enable = true;
-      # edge over WG front door; public IP fallback if tunnel down
+      # edge over WG front door; script also tries public IP
       host = "root@10.99.0.1";
+      identityFile = "/var/lib/mothership/git-sync/edge_trigger_ed25519";
     };
   };
 

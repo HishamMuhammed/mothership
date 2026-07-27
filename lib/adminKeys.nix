@@ -6,4 +6,6 @@
   "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMckfpjGyg3/Hx7Xu0racB/V/PlaY5TvmHQdkLC2y90G alvinliju44@gmail.com"
   "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINE0TI9u5ePkeYdDfzQUbdRFNL/8s8C0rCoTjYsSIZF0 test-deploy"
   "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHPykkjdk3kXfGgRKAllnOse/ez5lU47eGppXuwYmjMH nihalsaeed@gmail.com"
+  # mothership → edge git-sync trigger (private key only on mothership)
+  "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFg+E1M+MTEnXGkkdVx1Svo+RNvv+DgCyv5g/QdVfLmL mothership-edge-trigger"
 ]
