@@ -1,9 +1,7 @@
-# mothership git sync — path-aware pull + nixos-rebuild (systemd timer = cron)
+# git sync — path-aware pull + nixos-rebuild (mothership and/or edge)
 #
-# enable on the metal only. watches origin/main, classifies diffs:
-#   user-vms only  → member switch (host must activate units; peers should stay up)
-#   host fabric    → full switch
-#   edge/sites/... → pull, no rebuild
+# mothership: rebuilds metal; on edge-relevant diffs SSHs to edge to start edge-git-sync
+# edge: own timer + oneshot (bastion keys, publish, landing)
 {
   config,
   lib,
@@ -12,31 +10,62 @@
 }:
 let
   cfg = config.mothership.gitSync;
-  syncBin = pkgs.writeShellScriptBin "mothership-git-sync" ''
+  role = cfg.role;
+  unit = if role == "edge" then "edge-git-sync" else "mothership-git-sync";
+  binName = unit;
+
+  syncBin = pkgs.writeShellScriptBin binName ''
     export PATH="${
-      lib.makeBinPath [
-        pkgs.bash
-        pkgs.coreutils
-        pkgs.git
-        pkgs.util-linux
-        pkgs.gawk
-        pkgs.gnugrep
-        pkgs.nix
-        pkgs.nixos-rebuild
-        pkgs.systemd
-      ]
+      lib.makeBinPath (
+        [
+          pkgs.bash
+          pkgs.coreutils
+          pkgs.git
+          pkgs.util-linux
+          pkgs.gawk
+          pkgs.gnugrep
+          pkgs.nix
+          pkgs.nixos-rebuild
+          pkgs.systemd
+        ]
+        ++ lib.optionals (role == "mothership" && cfg.triggerEdge.enable) [ pkgs.openssh ]
+      )
     }:/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin"
-    exec ${pkgs.bash}/bin/bash ${../scripts/mothership-git-sync} "$@"
+    export SYNC_ROLE="${role}"
+    export SYNC_SRC="${cfg.srcDir}"
+    export SYNC_REMOTE="${cfg.remote}"
+    export SYNC_BRANCH="${cfg.branch}"
+    export SYNC_FLAKE="${cfg.flakeHost}"
+    export SYNC_STATE="${cfg.stateDir}"
+    export SYNC_TRIGGER_EDGE="${if cfg.triggerEdge.enable then "1" else "0"}"
+    export SYNC_EDGE_HOST="${cfg.triggerEdge.host}"
+    ${lib.optionalString (cfg.triggerEdge.identityFile != null) ''
+      export SYNC_EDGE_IDENTITY="${cfg.triggerEdge.identityFile}"
+    ''}
+    # legacy env
+    export MOTHERSHIP_SRC="$SYNC_SRC"
+    export MOTHERSHIP_REMOTE="$SYNC_REMOTE"
+    export MOTHERSHIP_BRANCH="$SYNC_BRANCH"
+    export MOTHERSHIP_FLAKE="$SYNC_FLAKE"
+    exec ${pkgs.bash}/bin/bash ${../scripts/host-git-sync} "$@"
   '';
 in
 {
   options.mothership.gitSync = {
     enable = lib.mkEnableOption "path-aware git pull + activate on a timer";
 
+    role = lib.mkOption {
+      type = lib.types.enum [
+        "mothership"
+        "edge"
+      ];
+      default = "mothership";
+      description = "which host flake + path rules to use";
+    };
+
     remote = lib.mkOption {
       type = lib.types.str;
       default = "https://github.com/tinkerhub0/mothership.git";
-      description = "git remote (public https or ssh)";
     };
 
     branch = lib.mkOption {
@@ -47,46 +76,75 @@ in
     srcDir = lib.mkOption {
       type = lib.types.str;
       default = "/var/lib/mothership/src";
-      description = "working tree the timer pulls into";
+    };
+
+    stateDir = lib.mkOption {
+      type = lib.types.str;
+      default = "/var/lib/mothership/git-sync";
     };
 
     flakeHost = lib.mkOption {
       type = lib.types.str;
       default = "mothership";
-      description = "nixosConfigurations.<name> for nixos-rebuild";
     };
 
     interval = lib.mkOption {
       type = lib.types.str;
       default = "2min";
-      description = "systemd OnUnitActiveSec after each run finishes";
     };
 
     randomizedDelaySec = lib.mkOption {
       type = lib.types.str;
       default = "30s";
     };
+
+    triggerEdge = {
+      enable = lib.mkEnableOption "after mothership sync, SSH-start edge-git-sync when edge paths changed";
+
+      host = lib.mkOption {
+        type = lib.types.str;
+        default = "root@10.99.0.1";
+        description = "SSH target for edge (WG tunnel IP preferred)";
+      };
+
+      identityFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = "optional private key path for mothership → edge";
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = cfg.flakeHost != "";
+        message = "mothership.gitSync.flakeHost must be set";
+      }
+      {
+        assertion = !(cfg.triggerEdge.enable && role == "edge");
+        message = "mothership.gitSync.triggerEdge only valid on mothership role";
+      }
+    ];
+
     environment.systemPackages = [
       syncBin
       pkgs.git
-    ];
+    ]
+    ++ lib.optionals (role == "mothership" && cfg.triggerEdge.enable) [ pkgs.openssh ];
 
     systemd.tmpfiles.rules = [
       "d /var/lib/mothership 0755 root root -"
-      "d /var/lib/mothership/git-sync 0755 root root -"
+      "d ${cfg.stateDir} 0755 root root -"
     ];
 
-    systemd.services.mothership-git-sync = {
-      description = "mothership path-aware git sync + activate";
+    systemd.services.${unit} = {
+      description = "${role} path-aware git sync + activate";
       after = [
         "network-online.target"
         "nix-daemon.service"
       ];
       wants = [ "network-online.target" ];
-      # packages (not raw strings) so nixos wires bin/ correctly
       path = with pkgs; [
         bash
         coreutils
@@ -97,57 +155,49 @@ in
         nix
         nixos-rebuild
         systemd
-      ];
+      ]
+      ++ lib.optionals (role == "mothership" && cfg.triggerEdge.enable) [ pkgs.openssh ];
       environment = {
-        MOTHERSHIP_SRC = cfg.srcDir;
-        MOTHERSHIP_REMOTE = cfg.remote;
-        MOTHERSHIP_BRANCH = cfg.branch;
-        MOTHERSHIP_FLAKE = cfg.flakeHost;
         NIX_CONFIG = "experimental-features = nix-command flakes";
       };
       serviceConfig = {
         Type = "oneshot";
-        ExecStart = "${syncBin}/bin/mothership-git-sync";
+        ExecStart = "${syncBin}/bin/${binName}";
         TimeoutStartSec = "2h";
         Nice = 10;
-        # never take down the host activation if a sync is mid-flight
-        RemainAfterExit = false;
-      };
-      # do not block boot/switch; timer invokes later
-      unitConfig = {
-        RefuseManualStart = false;
       };
     };
 
-    systemd.timers.mothership-git-sync = {
-      description = "mothership git sync timer";
+    systemd.timers.${unit} = {
+      description = "${role} git sync timer";
       wantedBy = [ "timers.target" ];
       timerConfig = {
-        # first run a few minutes after boot; then every interval after each finish
         OnBootSec = "5min";
         OnUnitActiveSec = cfg.interval;
         RandomizedDelaySec = cfg.randomizedDelaySec;
-        # avoid instant catch-up when the unit is first enabled on a long-uptime box
         Persistent = false;
-        Unit = "mothership-git-sync.service";
+        Unit = "${unit}.service";
       };
     };
 
     environment.etc."mothership/git-sync.txt".text = ''
-      mothership git sync: on
+      git sync: on  role=${role}
       remote:   ${cfg.remote}
       branch:   ${cfg.branch}
       src:      ${cfg.srcDir}
       flake:    .#${cfg.flakeHost}
       interval: ${cfg.interval}
+      unit:     ${unit}.timer
+      ${lib.optionalString (role == "mothership") ''
+        triggerEdge: ${if cfg.triggerEdge.enable then "yes → ${cfg.triggerEdge.host}" else "no"}
+      ''}
 
-      member PR (user-vms only) → switch host, start microvm@you, peers stay up
-      fabric PR (modules/hosts/lib/flake) → full switch
-      edge/site only → pull, no mothership rebuild
+      mothership: user-vms + hosts/mothership + modules → rebuild
+      edge:       user-vms + bastion/publish/landing/front-door/sites → rebuild
+      mothership may SSH-start edge-git-sync when edge paths change
 
-      journal: journalctl -u mothership-git-sync -f
-      manual:  mothership-git-sync
-      dry-run: MOTHERSHIP_DRY_RUN=1 mothership-git-sync
+      journal: journalctl -u ${unit} -f
+      manual:  ${binName}
     '';
   };
 }

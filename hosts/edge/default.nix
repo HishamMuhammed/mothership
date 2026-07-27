@@ -18,6 +18,7 @@
     ../../modules/bastion.nix # public ssh you@you.domain → VM
     ../../modules/member-publish.nix # public http you.domain → VM:port
     ../../modules/landing.nix # tharavad.xyz Astro landing
+    ../../modules/git-sync.nix # main → edge (bastion keys, publish, landing)
   ];
 
   networking.hostName = "edge";
@@ -87,6 +88,18 @@
   mothership.landing = {
     enable = true;
     domain = "tharavad.xyz";
+  };
+
+  # main → edge: own timer + oneshot (mothership may also trigger this)
+  mothership.gitSync = {
+    enable = true;
+    role = "edge";
+    flakeHost = "edge";
+    remote = "https://github.com/tinkerhub0/mothership.git";
+    branch = "main";
+    interval = "2min";
+    srcDir = "/var/lib/mothership/src";
+    stateDir = "/var/lib/mothership/git-sync-edge";
   };
 
   networking.firewall.allowedTCPPorts = [

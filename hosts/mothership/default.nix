@@ -79,12 +79,19 @@ in
   };
 
   # main → metal: path-aware pull + switch (timer ≈ cron)
-  # member-only PRs still switch host (units/bastion/publish) but peers should stay up
+  # edge-relevant paths (user-vms keys, bastion, landing) also SSH-start edge-git-sync
   mothership.gitSync = {
     enable = true;
+    role = "mothership";
+    flakeHost = "mothership";
     remote = "https://github.com/tinkerhub0/mothership.git";
     branch = "main";
     interval = "2min";
+    triggerEdge = {
+      enable = true;
+      # edge over WG front door; public IP fallback if tunnel down
+      host = "root@10.99.0.1";
+    };
   };
 
   hardware.facter.reportPath = lib.mkIf (builtins.pathExists ./facter.json) ./facter.json;

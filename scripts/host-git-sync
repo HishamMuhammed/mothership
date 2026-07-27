@@ -1,0 +1,349 @@
+#!/usr/bin/env bash
+# host-git-sync — path-aware pull + nixos-rebuild for mothership OR edge
+#
+# env:
+#   SYNC_ROLE          mothership | edge     (default mothership)
+#   SYNC_SRC           checkout path
+#   SYNC_REMOTE        git remote
+#   SYNC_BRANCH        branch (default main)
+#   SYNC_FLAKE         nixosConfigurations attr
+#   SYNC_STATE         state dir
+#   SYNC_DRY_RUN=1
+#   SYNC_TRIGGER_EDGE=1          mothership only: kick edge after edge-relevant change
+#   SYNC_EDGE_HOST               e.g. root@10.99.0.1
+#   SYNC_EDGE_IDENTITY           optional ssh -i path
+set -euo pipefail
+
+ROLE="${SYNC_ROLE:-mothership}"
+SRC="${SYNC_SRC:-/var/lib/mothership/src}"
+REMOTE="${SYNC_REMOTE:-https://github.com/tinkerhub0/mothership.git}"
+BRANCH="${SYNC_BRANCH:-main}"
+FLAKE_HOST="${SYNC_FLAKE:-$ROLE}"
+STATE_DIR="${SYNC_STATE:-/var/lib/mothership/git-sync}"
+LOCK="${STATE_DIR}/sync.lock"
+DRY="${SYNC_DRY_RUN:-0}"
+TRIGGER_EDGE="${SYNC_TRIGGER_EDGE:-0}"
+EDGE_HOST="${SYNC_EDGE_HOST:-root@10.99.0.1}"
+EDGE_IDENTITY="${SYNC_EDGE_IDENTITY:-}"
+
+# back-compat with old mothership-git-sync env names
+SRC="${MOTHERSHIP_SRC:-$SRC}"
+REMOTE="${MOTHERSHIP_REMOTE:-$REMOTE}"
+BRANCH="${MOTHERSHIP_BRANCH:-$BRANCH}"
+FLAKE_HOST="${MOTHERSHIP_FLAKE:-$FLAKE_HOST}"
+STATE_DIR="${MOTHERSHIP_STATE:-$STATE_DIR}"
+DRY="${MOTHERSHIP_DRY_RUN:-$DRY}"
+
+log() { printf '%s [%s] %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$ROLE" "$*"; }
+die() { log "error: $*"; exit 1; }
+
+mkdir -p "$STATE_DIR"
+
+if command -v flock >/dev/null 2>&1; then
+  exec 9>"$LOCK"
+  if ! flock -n 9; then
+    log "another sync holds the lock; exit"
+    exit 0
+  fi
+else
+  log "warn: flock missing; concurrent runs possible"
+fi
+
+need_cmd() { command -v "$1" >/dev/null 2>&1 || die "missing $1"; }
+need_cmd git
+need_cmd nix
+need_cmd nixos-rebuild
+need_cmd systemctl
+
+# --- checkout ---------------------------------------------------------------
+if [[ ! -d "$SRC/.git" ]]; then
+  log "clone $REMOTE → $SRC"
+  if [[ "$DRY" == "1" ]]; then
+    log "dry-run: would clone"
+    exit 0
+  fi
+  mkdir -p "$(dirname "$SRC")"
+  git clone --depth 50 --branch "$BRANCH" "$REMOTE" "$SRC"
+fi
+
+cd "$SRC"
+git remote set-url origin "$REMOTE" 2>/dev/null || git remote add origin "$REMOTE"
+
+OLD="$(git rev-parse HEAD)"
+log "fetch origin/$BRANCH (at $OLD)"
+if [[ "$DRY" != "1" ]]; then
+  git fetch --prune origin "+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}"
+fi
+
+NEW="$(git rev-parse "origin/$BRANCH" 2>/dev/null || true)"
+if [[ -z "$NEW" ]]; then
+  die "origin/$BRANCH missing after fetch"
+fi
+
+if [[ "$OLD" == "$NEW" ]]; then
+  log "no changes ($OLD)"
+  exit 0
+fi
+
+mapfile -t CHANGED < <(git diff --name-only "$OLD" "$NEW" 2>/dev/null || true)
+if [[ ${#CHANGED[@]} -eq 0 ]]; then
+  log "empty name-diff $OLD..$NEW; treating as fabric rebuild"
+  CHANGED=("flake.nix")
+fi
+
+log "changes $OLD → $NEW:"
+printf '  %s\n' "${CHANGED[@]:-}"
+
+# --- path rules per role ----------------------------------------------------
+member_hits=()
+fabric=0
+relevant=0
+edge_hits=0
+
+is_member_path() {
+  case "$1" in
+    user-vms/*.nix | user-vms/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# mothership fabric (this metal)
+is_mothership_fabric() {
+  case "$1" in
+    hosts/mothership/* | modules/* | lib/* | flake.nix | flake.lock) return 0 ;;
+    scripts/host-git-sync | scripts/mothership-git-sync) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# edge fabric (bastion, publish, landing, front door)
+is_edge_fabric() {
+  case "$1" in
+    hosts/edge/* | flake.nix | flake.lock | lib/*) return 0 ;;
+    modules/base.nix | modules/admins.nix | modules/tools.nix) return 0 ;;
+    modules/bastion.nix | modules/member-publish.nix | modules/landing.nix) return 0 ;;
+    modules/mesh/* | modules/git-sync.nix) return 0 ;;
+    sites/*) return 0 ;; # landing dist
+    scripts/host-git-sync | scripts/mothership-git-sync) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# paths that should wake edge (mothership uses this to trigger)
+is_edge_relevant() {
+  is_member_path "$1" && return 0
+  is_edge_fabric "$1" && return 0
+  return 1
+}
+
+is_mothership_irrelevant() {
+  case "$1" in
+    hosts/edge/* | sites/* | README* | why-this-exist | *.md | .github/* | AGENTS.md) return 0 ;;
+    scripts/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+is_edge_irrelevant() {
+  case "$1" in
+    hosts/mothership/* | modules/microvms/* | modules/deck/*) return 0 ;;
+    README* | why-this-exist | *.md | .github/* | AGENTS.md) return 0 ;;
+    user-vms/template.nix) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+for f in "${CHANGED[@]:-}"; do
+  if is_edge_relevant "$f"; then
+    edge_hits=1
+  fi
+
+  if [[ "$ROLE" == "edge" ]]; then
+    if is_member_path "$f"; then
+      relevant=1
+      base="$(basename "$f" .nix)"
+      if [[ "$base" != "template" ]]; then
+        member_hits+=("$base")
+      fi
+    elif is_edge_fabric "$f"; then
+      relevant=1
+      fabric=1
+    elif is_edge_irrelevant "$f"; then
+      :
+    else
+      log "warn: unclassified (edge) '$f' → fabric"
+      relevant=1
+      fabric=1
+    fi
+  else
+    # mothership
+    if is_member_path "$f"; then
+      relevant=1
+      base="$(basename "$f" .nix)"
+      if [[ "$base" != "template" ]]; then
+        member_hits+=("$base")
+      fi
+    elif is_mothership_fabric "$f"; then
+      relevant=1
+      fabric=1
+    elif is_mothership_irrelevant "$f"; then
+      :
+    else
+      log "warn: unclassified (mothership) '$f' → fabric"
+      relevant=1
+      fabric=1
+    fi
+  fi
+done
+
+if [[ ${#member_hits[@]} -gt 0 ]]; then
+  mapfile -t member_hits < <(printf '%s\n' "${member_hits[@]}" | sort -u)
+fi
+
+mode="skip"
+if [[ "$relevant" -eq 1 && "$fabric" -eq 1 ]]; then
+  mode="fabric"
+elif [[ "$relevant" -eq 1 ]]; then
+  mode="member"
+fi
+
+log "mode=$mode members=${member_hits[*]:-none} edge_hits=$edge_hits"
+
+checkout_origin() {
+  log "reset --hard origin/$BRANCH ($NEW)"
+  git checkout -B "$BRANCH" "origin/$BRANCH"
+  git reset --hard "$NEW"
+  git clean -fd
+}
+
+snapshot_vms() {
+  local out="$1"
+  : >"$out"
+  [[ "$ROLE" == "mothership" ]] || return 0
+  systemctl list-units --type=service --state=running --no-legend 'microvm@*' 2>/dev/null \
+    | awk '{print $1}' \
+    | while read -r u; do
+        [[ -z "$u" ]] && continue
+        ts="$(systemctl show -p ActiveEnterTimestamp --value "$u" 2>/dev/null || true)"
+        printf '%s\t%s\n' "$u" "$ts" >>"$out"
+      done || true
+}
+
+assert_peers_stable() {
+  [[ "$ROLE" == "mothership" ]] || return 0
+  local before="$1" after="$2"
+  local bad=0
+  while IFS=$'\t' read -r unit ts; do
+    [[ -z "$unit" ]] && continue
+    old_ts="$(awk -F'\t' -v u="$unit" '$1==u{print $2; exit}' "$before" 2>/dev/null || true)"
+    [[ -z "$old_ts" ]] && continue
+    new_ts="$(awk -F'\t' -v u="$unit" '$1==u{print $2; exit}' "$after" 2>/dev/null || true)"
+    if [[ -n "$new_ts" && "$old_ts" != "$new_ts" ]]; then
+      log "WARN peer restarted: $unit ($old_ts → $new_ts)"
+      bad=1
+    fi
+  done <"$after"
+  return "$bad"
+}
+
+trigger_edge() {
+  [[ "$ROLE" == "mothership" ]] || return 0
+  [[ "$TRIGGER_EDGE" == "1" ]] || return 0
+  [[ "$edge_hits" -eq 1 ]] || {
+    log "no edge-relevant paths; skip edge trigger"
+    return 0
+  }
+  if [[ "$DRY" == "1" ]]; then
+    log "dry-run: would trigger edge-git-sync on $EDGE_HOST"
+    return 0
+  fi
+  need_cmd ssh || {
+    log "warn: ssh missing; cannot trigger edge"
+    return 0
+  }
+  local ssh_opts=(-o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new)
+  if [[ -n "$EDGE_IDENTITY" && -f "$EDGE_IDENTITY" ]]; then
+    ssh_opts+=(-i "$EDGE_IDENTITY")
+  fi
+  local hosts=("$EDGE_HOST")
+  # public IP fallback if WG target differs
+  if [[ "$EDGE_HOST" != *178.105.120.5* ]]; then
+    hosts+=("root@178.105.120.5")
+  fi
+  local ok=0 h
+  for h in "${hosts[@]}"; do
+    log "trigger edge-git-sync @ $h"
+    if ssh "${ssh_opts[@]}" "$h" "systemctl start edge-git-sync.service"; then
+      log "edge-git-sync started via $h"
+      ok=1
+      break
+    fi
+    log "warn: trigger via $h failed"
+  done
+  if [[ "$ok" -ne 1 ]]; then
+    log "warn: all edge triggers failed (edge timer will catch up within interval)"
+  fi
+}
+
+if [[ "$mode" == "skip" ]]; then
+  log "checkout only (no rebuild on $ROLE)"
+  if [[ "$DRY" == "1" ]]; then
+    log "dry-run: would reset --hard to $NEW"
+    trigger_edge
+    exit 0
+  fi
+  checkout_origin
+  echo "$NEW" >"${STATE_DIR}/last-skip"
+  # mothership skip (e.g. only sites/) can still need edge
+  trigger_edge
+  exit 0
+fi
+
+BEFORE="${STATE_DIR}/vms-before.txt"
+AFTER="${STATE_DIR}/vms-after.txt"
+snapshot_vms "$BEFORE"
+if [[ "$ROLE" == "mothership" ]]; then
+  log "running microvms before activate:"
+  cat "$BEFORE" || true
+fi
+
+if [[ "$DRY" == "1" ]]; then
+  log "dry-run: would reset + nixos-rebuild switch --flake ${SRC}#${FLAKE_HOST}"
+  trigger_edge
+  exit 0
+fi
+
+checkout_origin
+
+log "nixos-rebuild switch --flake ${SRC}#${FLAKE_HOST} (mode=$mode)"
+if ! nixos-rebuild switch --flake "${SRC}#${FLAKE_HOST}"; then
+  die "nixos-rebuild switch failed (HEAD at $NEW)"
+fi
+
+if [[ "$ROLE" == "mothership" && "$mode" == "member" && ${#member_hits[@]} -gt 0 ]]; then
+  for name in "${member_hits[@]}"; do
+    if systemctl cat "microvm@${name}.service" >/dev/null 2>&1; then
+      log "ensure microvm@${name} running"
+      systemctl start "microvm@${name}.service" || log "warn: start microvm@${name} failed"
+      systemctl start "microvm-br-${name}.service" 2>/dev/null || true
+    else
+      log "warn: no unit microvm@${name} after switch"
+    fi
+  done
+fi
+
+snapshot_vms "$AFTER"
+if [[ "$ROLE" == "mothership" ]]; then
+  log "running microvms after activate:"
+  cat "$AFTER" || true
+  if ! assert_peers_stable "$BEFORE" "$AFTER"; then
+    log "WARN: some peer microvms restarted"
+  fi
+fi
+
+echo "$NEW" >"${STATE_DIR}/last-success"
+echo "$mode" >"${STATE_DIR}/last-mode"
+log "done mode=$mode at $NEW"
+
+# after mothership applied (or even if only edge paths), kick edge for keys/bastion/landing
+trigger_edge
