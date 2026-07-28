@@ -19,6 +19,7 @@
     ../../modules/member-publish.nix # public http you.domain → VM:port
     ../../modules/landing.nix # tharavad.xyz Astro landing
     ../../modules/git-sync.nix # main → edge (bastion keys, publish, landing)
+    ../../modules/landa-proxy.nix # landa.tharavad.xyz → control plane API
   ];
 
   networking.hostName = "edge";
@@ -100,6 +101,13 @@
     interval = "2min";
     srcDir = "/var/lib/mothership/src";
     stateDir = "/var/lib/mothership/git-sync-edge";
+  };
+
+  # landa control plane (process in /var/lib/landa; nginx fronts it)
+  mothership.landaProxy = {
+    enable = true;
+    domain = "landa.tharavad.xyz";
+    upstream = "http://127.0.0.1:8787";
   };
 
   networking.firewall.allowedTCPPorts = [
