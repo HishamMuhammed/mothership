@@ -103,13 +103,14 @@
     stateDir = "/var/lib/mothership/git-sync-edge";
   };
 
-  # landa: UI on landa.tharavad.xyz, API on landa-back.tharavad.xyz
+  # landa UI only — API lives on alvin (member publish landa-back → :8787)
   mothership.landaProxy = {
     enable = true;
     domain = "landa.tharavad.xyz";
-    apiDomain = "landa-back.tharavad.xyz";
-    upstream = "http://127.0.0.1:8787";
     webRoot = "/var/lib/landa/web/dist";
+    # no local API process; landa-back is memberPublish → alvin:8787
+    manageService = false;
+    apiDomain = null; # disable edge API vhost (publish owns landa-back)
   };
 
   networking.firewall.allowedTCPPorts = [

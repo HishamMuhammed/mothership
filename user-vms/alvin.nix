@@ -16,5 +16,10 @@
       # subdomain defaults to member name → alvin.tharavad.xyz
       port = 3000;
     }
+    # landa control plane API (runs on this VM — KVM / firecracker seats)
+    {
+      subdomain = "landa-back";
+      port = 8787;
+    }
   ];
 }

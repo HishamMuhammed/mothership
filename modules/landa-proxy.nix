@@ -1,7 +1,7 @@
 # landa public edge:
-#   landa.tharavad.xyz      → static console (/var/lib/landa/web/dist)
-#   landa-back.tharavad.xyz → landa-api (127.0.0.1:8787)
-# API code + web dist live in /var/lib/landa (landa repo deploy).
+#   landa.tharavad.xyz      → static console (webRoot)
+#   landa-back.tharavad.xyz → usually memberPublish → alvin:8787 (not local)
+# Optional local API unit if manageService + apiDomain set with local upstream.
 {
   config,
   lib,
@@ -14,7 +14,7 @@ let
 in
 {
   options.mothership.landaProxy = {
-    enable = lib.mkEnableOption "nginx + landa-api for landa console/API";
+    enable = lib.mkEnableOption "nginx landa console (+ optional local API)";
 
     domain = lib.mkOption {
       type = lib.types.str;
@@ -23,15 +23,15 @@ in
     };
 
     apiDomain = lib.mkOption {
-      type = lib.types.str;
-      default = "landa-back.tharavad.xyz";
-      description = "control plane API host";
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "If set, nginx vhost for API on this host (else use memberPublish)";
     };
 
     upstream = lib.mkOption {
       type = lib.types.str;
       default = "http://127.0.0.1:8787";
-      description = "landa-api listen address on this host";
+      description = "landa-api when apiDomain is local";
     };
 
     webRoot = lib.mkOption {
@@ -42,14 +42,14 @@ in
 
     manageService = lib.mkOption {
       type = lib.types.bool;
-      default = true;
-      description = "Install durable landa-api.service (needs /var/lib/landa checkout)";
+      default = false;
+      description = "Install local landa-api.service on this host";
     };
   };
 
   config = lib.mkIf cfg.enable {
-    users.groups.landa = { };
-    users.users.landa = {
+    users.groups.landa = lib.mkIf cfg.manageService { };
+    users.users.landa = lib.mkIf cfg.manageService {
       isSystemUser = true;
       uid = landaUid;
       group = "landa";
@@ -60,34 +60,37 @@ in
 
     services.nginx = {
       enable = true;
-      # console SPA
-      virtualHosts."${cfg.domain}" = {
-        root = cfg.webRoot;
-        locations."/" = {
-          tryFiles = "$uri $uri/ /index.html";
+      virtualHosts =
+        {
+          "${cfg.domain}" = {
+            root = cfg.webRoot;
+            locations."/" = {
+              tryFiles = "$uri $uri/ /index.html";
+            };
+            extraConfig = ''
+              add_header X-Content-Type-Options nosniff always;
+              add_header X-Frame-Options DENY always;
+            '';
+          };
+        }
+        // lib.optionalAttrs (cfg.apiDomain != null) {
+          "${cfg.apiDomain}" = {
+            locations."/" = {
+              proxyPass = cfg.upstream;
+              extraConfig = ''
+                proxy_http_version 1.1;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_read_timeout 300s;
+              '';
+            };
+            extraConfig = ''
+              add_header X-Content-Type-Options nosniff always;
+            '';
+          };
         };
-        extraConfig = ''
-          add_header X-Content-Type-Options nosniff always;
-          add_header X-Frame-Options DENY always;
-        '';
-      };
-      # API
-      virtualHosts."${cfg.apiDomain}" = {
-        locations."/" = {
-          proxyPass = cfg.upstream;
-          extraConfig = ''
-            proxy_http_version 1.1;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_read_timeout 300s;
-          '';
-        };
-        extraConfig = ''
-          add_header X-Content-Type-Options nosniff always;
-        '';
-      };
     };
 
     networking.firewall.allowedTCPPorts = [ 80 ];
@@ -129,11 +132,11 @@ in
     };
 
     environment.etc."mothership/landa-proxy.txt".text = ''
-      ui:       http://${cfg.domain}/
-      api:      http://${cfg.apiDomain}/
-      upstream: ${cfg.upstream}
-      webRoot:  ${cfg.webRoot}
-      health:   http://${cfg.apiDomain}/health
+      ui:      http://${cfg.domain}/
+      webRoot: ${cfg.webRoot}
+      api:     ${
+        if cfg.apiDomain != null then "http://${cfg.apiDomain}/ (local upstream ${cfg.upstream})" else "memberPublish → landa-back (alvin:8787)"
+      }
     '';
   };
 }
