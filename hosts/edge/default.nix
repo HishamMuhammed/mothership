@@ -103,11 +103,13 @@
     stateDir = "/var/lib/mothership/git-sync-edge";
   };
 
-  # landa control plane (process in /var/lib/landa; nginx fronts it)
+  # landa: UI on landa.tharavad.xyz, API on landa-back.tharavad.xyz
   mothership.landaProxy = {
     enable = true;
     domain = "landa.tharavad.xyz";
+    apiDomain = "landa-back.tharavad.xyz";
     upstream = "http://127.0.0.1:8787";
+    webRoot = "/var/lib/landa/web/dist";
   };
 
   networking.firewall.allowedTCPPorts = [

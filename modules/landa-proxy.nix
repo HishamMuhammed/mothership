@@ -1,6 +1,7 @@
-# public landa.tharavad.xyz → local landa-api (control plane)
-# API code lives in /var/lib/landa (see landa repo deploy); this module
-# fronts it with nginx and keeps a durable systemd unit + landa system user.
+# landa public edge:
+#   landa.tharavad.xyz      → static console (/var/lib/landa/web/dist)
+#   landa-back.tharavad.xyz → landa-api (127.0.0.1:8787)
+# API code + web dist live in /var/lib/landa (landa repo deploy).
 {
   config,
   lib,
@@ -13,17 +14,30 @@ let
 in
 {
   options.mothership.landaProxy = {
-    enable = lib.mkEnableOption "nginx reverse proxy for landa API";
+    enable = lib.mkEnableOption "nginx + landa-api for landa console/API";
 
     domain = lib.mkOption {
       type = lib.types.str;
       default = "landa.tharavad.xyz";
+      description = "static UI host";
+    };
+
+    apiDomain = lib.mkOption {
+      type = lib.types.str;
+      default = "landa-back.tharavad.xyz";
+      description = "control plane API host";
     };
 
     upstream = lib.mkOption {
       type = lib.types.str;
       default = "http://127.0.0.1:8787";
       description = "landa-api listen address on this host";
+    };
+
+    webRoot = lib.mkOption {
+      type = lib.types.str;
+      default = "/var/lib/landa/web/dist";
+      description = "built Vite console (index.html + assets)";
     };
 
     manageService = lib.mkOption {
@@ -34,7 +48,6 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    # uid must match existing /var/lib/landa/.data ownership on edge
     users.groups.landa = { };
     users.users.landa = {
       isSystemUser = true;
@@ -47,7 +60,19 @@ in
 
     services.nginx = {
       enable = true;
+      # console SPA
       virtualHosts."${cfg.domain}" = {
+        root = cfg.webRoot;
+        locations."/" = {
+          tryFiles = "$uri $uri/ /index.html";
+        };
+        extraConfig = ''
+          add_header X-Content-Type-Options nosniff always;
+          add_header X-Frame-Options DENY always;
+        '';
+      };
+      # API
+      virtualHosts."${cfg.apiDomain}" = {
         locations."/" = {
           proxyPass = cfg.upstream;
           extraConfig = ''
@@ -67,13 +92,11 @@ in
 
     networking.firewall.allowedTCPPorts = [ 80 ];
 
-    # durable unit (survives reboot; /run units do not)
     systemd.services.landa-api = lib.mkIf cfg.manageService {
       description = "landa control plane API";
       after = [ "network-online.target" ];
       wants = [ "network-online.target" ];
       wantedBy = [ "multi-user.target" ];
-      # only start when deploy checkout exists
       unitConfig.ConditionPathExists = "/var/lib/landa/package.json";
       path = [
         pkgs.bash
@@ -93,12 +116,11 @@ in
         DATABASE_URL = "postgres://landa:landa@127.0.0.1:5433/landa";
         LANDA_API_HOST = "127.0.0.1";
         LANDA_API_PORT = "8787";
-        # PATH comes from systemd.path (do not set environment.PATH — conflicts)
+        LANDA_CORS_ORIGIN = "*";
       };
       serviceConfig = {
         Type = "simple";
         WorkingDirectory = "/var/lib/landa";
-        # prepend runtime dirs; nix develop supplies node/postgres tools
         ExecStartPre = "${pkgs.bash}/bin/bash -c 'export PATH=/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:/var/lib/landa/node_modules/.bin:$PATH; cd /var/lib/landa && nix --extra-experimental-features \"nix-command flakes\" develop -c landa-pg start'";
         ExecStart = "${pkgs.bash}/bin/bash -c 'export PATH=/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:/var/lib/landa/node_modules/.bin:$PATH; cd /var/lib/landa && exec nix --extra-experimental-features \"nix-command flakes\" develop -c npm run api'";
         Restart = "on-failure";
@@ -107,9 +129,11 @@ in
     };
 
     environment.etc."mothership/landa-proxy.txt".text = ''
-      landa:    http://${cfg.domain}/
+      ui:       http://${cfg.domain}/
+      api:      http://${cfg.apiDomain}/
       upstream: ${cfg.upstream}
-      health:   http://${cfg.domain}/health
+      webRoot:  ${cfg.webRoot}
+      health:   http://${cfg.apiDomain}/health
     '';
   };
 }
