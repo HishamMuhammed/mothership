@@ -93,13 +93,14 @@ in
         DATABASE_URL = "postgres://landa:landa@127.0.0.1:5433/landa";
         LANDA_API_HOST = "127.0.0.1";
         LANDA_API_PORT = "8787";
-        PATH = "/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:/var/lib/landa/node_modules/.bin";
+        # PATH comes from systemd.path (do not set environment.PATH — conflicts)
       };
       serviceConfig = {
         Type = "simple";
         WorkingDirectory = "/var/lib/landa";
-        ExecStartPre = "${pkgs.bash}/bin/bash -c 'cd /var/lib/landa && nix --extra-experimental-features \"nix-command flakes\" develop -c landa-pg start'";
-        ExecStart = "${pkgs.bash}/bin/bash -c 'cd /var/lib/landa && exec nix --extra-experimental-features \"nix-command flakes\" develop -c npm run api'";
+        # prepend runtime dirs; nix develop supplies node/postgres tools
+        ExecStartPre = "${pkgs.bash}/bin/bash -c 'export PATH=/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:/var/lib/landa/node_modules/.bin:$PATH; cd /var/lib/landa && nix --extra-experimental-features \"nix-command flakes\" develop -c landa-pg start'";
+        ExecStart = "${pkgs.bash}/bin/bash -c 'export PATH=/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:/var/lib/landa/node_modules/.bin:$PATH; cd /var/lib/landa && exec nix --extra-experimental-features \"nix-command flakes\" develop -c npm run api'";
         Restart = "on-failure";
         RestartSec = "5";
       };
