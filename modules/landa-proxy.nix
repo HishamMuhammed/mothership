@@ -40,6 +40,19 @@ in
       description = "built Vite console (index.html + assets)";
     };
 
+    # same-origin proxy so Better Auth cookies work without HTTPS
+    apiProxy = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = "http://10.99.0.2:9080";
+      description = "upstream for /v1 /api/auth /health (mothership publish router)";
+    };
+
+    apiProxyHost = lib.mkOption {
+      type = lib.types.str;
+      default = "landa-back.tharavad.xyz";
+      description = "Host header for apiProxy (memberPublish virtual host)";
+    };
+
     manageService = lib.mkOption {
       type = lib.types.bool;
       default = false;
@@ -64,9 +77,50 @@ in
         {
           "${cfg.domain}" = {
             root = cfg.webRoot;
-            locations."/" = {
-              tryFiles = "$uri $uri/ /index.html";
-            };
+            locations =
+              {
+                "/" = {
+                  tryFiles = "$uri $uri/ /index.html";
+                };
+              }
+              // lib.optionalAttrs (cfg.apiProxy != null) {
+                "/v1/" = {
+                  proxyPass = cfg.apiProxy;
+                  recommendedProxySettings = false;
+                  extraConfig = ''
+                    proxy_http_version 1.1;
+                    proxy_set_header Host ${cfg.apiProxyHost};
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                    proxy_set_header Cookie $http_cookie;
+                    proxy_pass_header Set-Cookie;
+                    proxy_read_timeout 300s;
+                  '';
+                };
+                "/api/" = {
+                  proxyPass = cfg.apiProxy;
+                  recommendedProxySettings = false;
+                  extraConfig = ''
+                    proxy_http_version 1.1;
+                    proxy_set_header Host ${cfg.apiProxyHost};
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                    proxy_set_header Cookie $http_cookie;
+                    proxy_pass_header Set-Cookie;
+                    proxy_read_timeout 300s;
+                  '';
+                };
+                "/health" = {
+                  proxyPass = "${cfg.apiProxy}/health";
+                  recommendedProxySettings = false;
+                  extraConfig = ''
+                    proxy_http_version 1.1;
+                    proxy_set_header Host ${cfg.apiProxyHost};
+                  '';
+                };
+              };
             extraConfig = ''
               add_header X-Content-Type-Options nosniff always;
               add_header X-Frame-Options DENY always;
