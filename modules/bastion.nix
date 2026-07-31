@@ -1,9 +1,11 @@
-# public SSH bastion — Railway-style member access.
+# public SSH bastion — members + operator host selectors.
 #
-#   member:  ssh you@you.<publicDomain>
-#            (no mesh, no Headscale, no Tailscale)
+#   member:    ssh you@you.<publicDomain>  → microVM (via mothership)
+#   operator:  ssh mothership@<publicDomain> → mothership metal (WG)
+#              ssh edge@<publicDomain>       → edge local shell
 #
-#   path:    internet → edge:22 (your key) → WG → mothership → VM (bastion key)
+#   path (member):
+#     internet → edge:22 (member key) → WG → mothership → VM (bastion key)
 #
 # Headscale stays internal (unique private IPs between VMs/admins).
 {
@@ -15,6 +17,7 @@
 let
   cfg = config.mothership.bastion;
   bastionPub = import ../lib/bastionPubKey.nix;
+  adminKeys = import ../lib/adminKeys.nix;
 
   memberDir = ../user-vms;
   dirEntries = if builtins.pathExists memberDir then builtins.readDir memberDir else { };
@@ -37,11 +40,13 @@ let
     "root"
     "nixos"
     "mothership"
+    "edge"
     "nobody"
     "sshd"
   ];
 
-  jumpScript = pkgs.writeShellScript "bastion-jump" ''
+  # member: you@you → microVM via mothership ProxyJump
+  memberJump = pkgs.writeShellScript "bastion-jump-member" ''
     set -euo pipefail
     KEY="${cfg.privateKeyFile}"
     JUMP="${cfg.jumpHost}"
@@ -50,7 +55,6 @@ let
       exit 1
     fi
     # shell USER = member account (e.g. alvin) → VM hostname + login
-    # internal hop only (WG + mesh). ProxyCommand so jump host also skips host keys.
     exec ${pkgs.openssh}/bin/ssh -tt \
       -i "$KEY" \
       -o IdentitiesOnly=yes \
@@ -61,21 +65,38 @@ let
       -o LogLevel=ERROR \
       "''${USER}@''${USER}"
   '';
+
+  # operator: mothership@tharavad.xyz → mothership metal over WG
+  metalJump = pkgs.writeShellScript "bastion-jump-mothership" ''
+    set -euo pipefail
+    KEY="${cfg.privateKeyFile}"
+    JUMP="${cfg.jumpHost}"
+    if [ ! -r "$KEY" ]; then
+      echo "bastion key missing on edge — operator: scripts/install-bastion-key" >&2
+      exit 1
+    fi
+    exec ${pkgs.openssh}/bin/ssh -tt \
+      -i "$KEY" \
+      -o IdentitiesOnly=yes \
+      -o StrictHostKeyChecking=no \
+      -o UserKnownHostsFile=/dev/null \
+      -o GlobalKnownHostsFile=/dev/null \
+      -o LogLevel=ERROR \
+      mothership@"''${JUMP}"
+  '';
 in
 {
   options.mothership.bastion = {
-    enable = lib.mkEnableOption "public SSH bastion (edge): ssh you@you.domain → member VM";
+    enable = lib.mkEnableOption "public SSH bastion (edge): members + mothership@ / edge@ operators";
 
-    # also trust bastion key on this host (mothership root for ProxyJump)
-    trustBastionKey = lib.mkEnableOption "authorize bastion pubkey for root (jump hop)";
+    # also trust bastion key on this host (mothership root + mothership user for hop)
+    trustBastionKey = lib.mkEnableOption "authorize bastion pubkey for root + mothership (jump hop)";
 
     publicDomain = lib.mkOption {
       type = lib.types.str;
-      # free wildcard DNS → edge IP; replace with real domain later
       default = "tharavad.xyz";
       description = ''
-        DNS suffix for members. you.<publicDomain> must A/AAAA to edge.
-        Zone already has wildcard * → edge (178.105.120.5).
+        DNS suffix. Apex and *.publicDomain A/AAAA → edge.
       '';
     };
 
@@ -93,17 +114,18 @@ in
     publicKey = lib.mkOption {
       type = lib.types.str;
       default = bastionPub;
-      description = "Bastion public key injected into member VMs + mothership root.";
+      description = "Bastion public key injected into member VMs + mothership hop accounts.";
     };
   };
 
   config = lib.mkMerge [
-    # ── mothership: accept bastion as jump user (root) ──────────────────
+    # ── mothership: accept bastion for ProxyJump + mothership@ hop ──────
     (lib.mkIf cfg.trustBastionKey {
       users.users.root.openssh.authorizedKeys.keys = lib.mkAfter [ cfg.publicKey ];
+      users.users.mothership.openssh.authorizedKeys.keys = lib.mkAfter [ cfg.publicKey ];
     })
 
-    # ── edge: member accounts + ForceCommand jump ───────────────────────
+    # ── edge: members + operator selectors ──────────────────────────────
     (lib.mkIf cfg.enable {
       assertions = [
         {
@@ -116,20 +138,40 @@ in
 
       systemd.tmpfiles.rules = [
         "d /var/lib/mothership/bastion 0750 root bastion -"
-        # private key must be group-readable (ForceCommand runs as member user)
+        # private key must be group-readable (ForceCommand runs as member/operator user)
         "z ${cfg.privateKeyFile} 0440 root bastion -"
       ];
 
-      # one Unix user per member — keys from git; session becomes VM shell
-      users.users = lib.mapAttrs (
-        name: m: {
-          isNormalUser = true;
-          description = "bastion → microVM ${name}";
-          extraGroups = [ "bastion" ];
-          # no password — ForceCommand always jumps to VM
-          openssh.authorizedKeys.keys = m.keys;
-        }
-      ) enabledMembers;
+      # members + edge@ + mothership@ group tweak (single users.users attr)
+      users.users =
+        (lib.mapAttrs (
+          name: m: {
+            isNormalUser = true;
+            description = "bastion → microVM ${name}";
+            extraGroups = [ "bastion" ];
+            openssh.authorizedKeys.keys = m.keys;
+          }
+        ) enabledMembers)
+        // {
+          # mothership@ on edge: bastion group so ForceCommand can read hop key
+          mothership.extraGroups = lib.mkAfter [ "bastion" ];
+          # edge@tharavad.xyz → local shell on edge (admin keys)
+          edge = {
+            isNormalUser = true;
+            description = "operator shell on edge";
+            extraGroups = [
+              "wheel"
+              "bastion"
+            ];
+            openssh.authorizedKeys.keys = adminKeys;
+          };
+        };
+
+      security.sudo.wheelNeedsPassword = false;
+      nix.settings.trusted-users = lib.mkAfter [
+        "edge"
+        "mothership"
+      ];
 
       services.openssh = {
         enable = true;
@@ -138,10 +180,18 @@ in
           KbdInteractiveAuthentication = false;
           PermitRootLogin = lib.mkDefault "prohibit-password";
         };
-        # Match all non-operator users
         extraConfig = ''
-          Match User *,!root,!nixos,!mothership
-            ForceCommand ${jumpScript}
+          # operator → mothership metal over WG
+          Match User mothership
+            ForceCommand ${metalJump}
+            AllowTcpForwarding no
+            X11Forwarding no
+            PermitTunnel no
+            AllowAgentForwarding no
+
+          # members → their microVM (exclude operators)
+          Match User *,!root,!nixos,!mothership,!edge
+            ForceCommand ${memberJump}
             AllowTcpForwarding no
             X11Forwarding no
             PermitTunnel no
@@ -150,23 +200,26 @@ in
       };
 
       environment.etc."mothership/bastion.txt".text = ''
-        public SSH bastion (Railway-style)
-        ==================================
-        member UX (no mesh client):
+        public SSH bastion
+        ==================
+        member (no mesh client):
 
           ssh <name>@<name>.${cfg.publicDomain}
+          e.g. ssh alvin@alvin.${cfg.publicDomain}
 
-        example:
+        operator (admin keys from lib/adminKeys.nix):
 
-          ssh alvin@alvin.${cfg.publicDomain}
+          ssh mothership@${cfg.publicDomain}   → mothership metal (WG ${cfg.jumpHost})
+          ssh edge@${cfg.publicDomain}         → edge local shell
+          ssh root@${cfg.publicDomain}         → edge as root
 
-        path:  you → edge:22 (your PR key) → WG → mothership → VM
-        mesh / Headscale: operators + VMs only (invisible to members)
+        path (member): you → edge:22 → WG → mothership → VM
+        path (mothership@): you → edge:22 → WG → mothership shell
+        path (edge@): you → edge:22 → local shell
 
-        DNS: *.${cfg.publicDomain} → edge public IP
-        (sslip.io default needs no registrar; swap publicDomain when you have a real zone)
+        DNS: apex + *.${cfg.publicDomain} → edge public IP
 
-        operator:
+        operator bootstrap:
           scripts/install-bastion-key
           rebuild edge + mothership
       '';
