@@ -16,8 +16,8 @@
     refquota = "40G";
   };
   god = {
-    mem = 30720;  # MiB (30 GB)
-    vcpu = 8;     # Adjust as needed
-    refquota = "1T";  # 1 TB SSD quota
+    mem = 30720;  
+    vcpu = 8;     
+    refquota = "1T";  
   };
 }
