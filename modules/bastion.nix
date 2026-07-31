@@ -75,14 +75,21 @@ let
       echo "bastion key missing on edge — operator: scripts/install-bastion-key" >&2
       exit 1
     fi
-    exec ${pkgs.openssh}/bin/ssh -tt \
-      -i "$KEY" \
-      -o IdentitiesOnly=yes \
-      -o StrictHostKeyChecking=no \
-      -o UserKnownHostsFile=/dev/null \
-      -o GlobalKnownHostsFile=/dev/null \
-      -o LogLevel=ERROR \
-      mothership@"''${JUMP}"
+    ssh_base=(
+      ${pkgs.openssh}/bin/ssh
+      -i "$KEY"
+      -o IdentitiesOnly=yes
+      -o StrictHostKeyChecking=no
+      -o UserKnownHostsFile=/dev/null
+      -o GlobalKnownHostsFile=/dev/null
+      -o LogLevel=ERROR
+    )
+    # interactive login vs remote command (ForceCommand swallows argv; use SSH_ORIGINAL_COMMAND)
+    if [ -n "''${SSH_ORIGINAL_COMMAND:-}" ]; then
+      exec "''${ssh_base[@]}" mothership@"''${JUMP}" "''${SSH_ORIGINAL_COMMAND}"
+    else
+      exec "''${ssh_base[@]}" -tt mothership@"''${JUMP}"
+    fi
   '';
 in
 {
