@@ -12,17 +12,19 @@ We run a public machine so nerds can have a real Linux box: mess around,
 What you get once you are in:
 </p> <ul> <li> <code>ssh you@you.tharavad.xyz</code> from anywhere with a normal key
 </li> <li>
-optional public HTTP: declare a port in git, serve on
-<code>http://you.tharavad.xyz</code> </li> <li>your own guest; your mess stays yours</li> </ul> <p>
+optional public HTTPS: declare a port in git, serve on
+<code>https://you.tharavad.xyz</code> </li> <li>your own guest; your mess stays yours</li> </ul> <p>
 Why bother: a lot of people still wish they had a box at 13 (or later) and
     never get past signup walls, credit cards, or the feeling that the useful
     rooms closed when the forums did. We cannot reverse that. We can keep one
     house open.
 </p> <p>
-Yes, this site is <code>http://</code> not <code>https://</code>. That is
-    not a misconfiguration; it is a feature, or at least a feature-length
-    grumble. Longer rant under
-<a href="/blog/on-http/">Notes: On HTTP</a>. SSH still uses real crypto.
+The site is <code>https://</code> now (Let's Encrypt on the edge). We ran
+    cleartext on purpose for a while — see
+<a href="/blog/on-http/">On HTTP</a> — then flipped the padlock back on for
+    boring human reasons: browsers scare people, and nobody types
+<code>http://</code> anymore. Rant + apology:
+<a href="/blog/back-to-https/">Back to HTTPS</a>. SSH still uses real keys.
 </p> <p> <a href="https://tinkerhub.org">TinkerHub</a> bought the iron. We frob the
     bits, bring guests up, and share the cycles with the community. How to land
     a shell is on <a href="/join">Join</a>. Longer story on
