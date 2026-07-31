@@ -76,6 +76,8 @@ in
       virtualHosts =
         {
           "${cfg.domain}" = {
+            forceSSL = true;
+            enableACME = true;
             root = cfg.webRoot;
             locations =
               {
@@ -129,6 +131,8 @@ in
         }
         // lib.optionalAttrs (cfg.apiDomain != null) {
           "${cfg.apiDomain}" = {
+            forceSSL = true;
+            enableACME = true;
             locations."/" = {
               proxyPass = cfg.upstream;
               extraConfig = ''
@@ -147,7 +151,10 @@ in
         };
     };
 
-    networking.firewall.allowedTCPPorts = [ 80 ];
+    networking.firewall.allowedTCPPorts = [
+      80
+      443
+    ];
 
     systemd.services.landa-api = lib.mkIf cfg.manageService {
       description = "landa control plane API";
@@ -186,11 +193,13 @@ in
     };
 
     environment.etc."mothership/landa-proxy.txt".text = ''
-      ui:      http://${cfg.domain}/
+      ui:      https://${cfg.domain}/
       webRoot: ${cfg.webRoot}
       api:     ${
-        if cfg.apiDomain != null then "http://${cfg.apiDomain}/ (local upstream ${cfg.upstream})" else "memberPublish → landa-back (alvin:8787)"
+        if cfg.apiDomain != null then "https://${cfg.apiDomain}/ (local upstream ${cfg.upstream})" else "memberPublish → landa-back (alvin:8787)"
       }
+      TLS:     ACME (enableACME + forceSSL)
     '';
   };
 }
+

@@ -27,8 +27,8 @@ import Base from "../layouts/Base.astro";
       <code>ssh you@you.tharavad.xyz</code> from anywhere with a normal key
     </li>
     <li>
-      optional public HTTP: declare a port in git, serve on
-      <code>http://you.tharavad.xyz</code>
+      optional public HTTPS: declare a port in git, serve on
+      <code>https://you.tharavad.xyz</code>
     </li>
     <li>your own guest; your mess stays yours</li>
   </ul>
@@ -41,10 +41,12 @@ import Base from "../layouts/Base.astro";
   </p>
 
   <p>
-    Yes, this site is <code>http://</code> not <code>https://</code>. That is
-    not a misconfiguration; it is a feature, or at least a feature-length
-    grumble. Longer rant under
-    <a href="/blog/on-http/">Notes: On HTTP</a>. SSH still uses real crypto.
+    The site is <code>https://</code> now (Let's Encrypt on the edge). We ran
+    cleartext on purpose for a while — see
+    <a href="/blog/on-http/">On HTTP</a> — then flipped the padlock back on for
+    boring human reasons: browsers scare people, and nobody types
+    <code>http://</code> anymore. Rant + apology:
+    <a href="/blog/back-to-https/">Back to HTTPS</a>. SSH still uses real keys.
   </p>
 
   <p>

@@ -4,7 +4,7 @@
 #
 # after merge:
 #   ssh you@you.tharavad.xyz
-#   http://you.tharavad.xyz  (if publish set — run a server on that port)
+#   https://you.tharavad.xyz  (if publish set — run a server on that port)
 #
 # mesh/Headscale is internal only — you do not join a VPN.
 {
@@ -17,10 +17,10 @@
     # "ssh-ed25519 AAAA… comment"
   ];
 
-  # optional public HTTP (DNS wildcard already points at edge)
+  # optional public HTTPS (DNS wildcard already points at edge; TLS on edge)
   # publish = [
-  #   { port = 3000; }                          # → http://you.tharavad.xyz
-  #   { subdomain = "blog"; port = 8080; }      # → http://blog.tharavad.xyz
+  #   { port = 3000; }                          # → https://you.tharavad.xyz
+  #   { subdomain = "blog"; port = 8080; }      # → https://blog.tharavad.xyz
   # ];
 }
 

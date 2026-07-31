@@ -11,28 +11,27 @@ import Base from "../layouts/Base.astro";
 
   <pre>{`# user-vms/you.nix
 publish = [
-  { port = 3000; }                     # → http://you.tharavad.xyz
-  # { subdomain = "blog"; port = 8080; }  # → http://blog.tharavad.xyz
+  { port = 3000; }                     # → https://you.tharavad.xyz
+  # { subdomain = "blog"; port = 8080; }  # → https://blog.tharavad.xyz
 ];`}</pre>
 
   <p>
-    After rebuild, the front door routes that hostname to your guest port. You
-    still have to run something that listens:
+    After rebuild, the front door routes that hostname to your guest port over
+    HTTPS (Let's Encrypt on edge). You still have to run something that
+    listens plain HTTP inside the guest — TLS terminates at the door:
   </p>
 
   <pre>{`python3 -m http.server 3000 --bind 0.0.0.0`}</pre>
 
   <p>
     No process on the port means a proxy error, not a broken DNS entry. SSH and
-    HTTP share the same names on different ports: twenty-two for shell, eighty
-    for the web path.
+    the web share the same names on different ports: twenty-two for shell,
+    four-forty-three for the public web path (eighty redirects).
   </p>
 
   <p>
     This is not a PaaS with auto deploys. It is a pipe you control. Keep it
-    small, or make it weird. Both are allowed. Publish is HTTP too, same
-    statement as the brochure: if you need TLS for your app, terminate it
-    yourself in the guest or wait until we grow up and run ACME for real
-    reasons, not vibes.
+    small, or make it weird. Both are allowed. Why the padlock came back:
+    <a href="/blog/back-to-https/">Back to HTTPS</a>.
   </p>
 </Base>

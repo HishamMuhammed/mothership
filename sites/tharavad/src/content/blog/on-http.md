@@ -24,6 +24,7 @@ with real key exchange. Your secrets should not be in a static brochure
 anyway. If that makes the security-theater crowd clutch their PETs, they can
 clone the repo over whatever transport they prefer and read the nix offline.
 
-We may add TLS later for the boring practical reasons (some browsers are
-rude about cleartext). Until then, treat the missing lock as a statement,
-not a bug report.
+**Update (2026-07-31):** we added TLS for the boring practical reasons
+(browsers and humans). The argument above is still the argument; the
+operations choice changed. See
+[Back to HTTPS](/blog/back-to-https/).

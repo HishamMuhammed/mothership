@@ -14,9 +14,10 @@
     ../../modules/base.nix
     ../../modules/admins.nix
     ../../modules/tools.nix
+    ../../modules/acme.nix # Let's Encrypt for public nginx
     ../../modules/mesh # WG front door + optional mesh client
     ../../modules/bastion.nix # public ssh you@you.domain → VM
-    ../../modules/member-publish.nix # public http you.domain → VM:port
+    ../../modules/member-publish.nix # public http(s) you.domain → VM:port
     ../../modules/landing.nix # tharavad.xyz Astro landing
     ../../modules/git-sync.nix # main → edge (bastion keys, publish, landing)
     ../../modules/landa-proxy.nix # landa.tharavad.xyz → control plane API
@@ -91,6 +92,12 @@
     domain = "tharavad.xyz";
   };
 
+  # Let's Encrypt (ACME) for landing + member publish + landa
+  mothership.acme = {
+    enable = true;
+    email = "ops@tharavad.xyz";
+  };
+
   # main → edge: own timer + oneshot (mothership may also trigger this)
   mothership.gitSync = {
     enable = true;
@@ -115,7 +122,8 @@
 
   networking.firewall.allowedTCPPorts = [
     22
-    80 # member HTTP publish
+    80 # ACME + redirect
+    443 # HTTPS (landing, publish, landa)
     8080 # nginx → Headscale via WG (ops)
   ];
   networking.firewall.allowedUDPPorts = [

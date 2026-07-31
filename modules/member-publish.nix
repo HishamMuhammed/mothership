@@ -1,12 +1,12 @@
-# member HTTP publish — Railway-style public ports from user-vms/*.nix
+# member HTTP(S) publish — Railway-style public ports from user-vms/*.nix
 #
 #   user-vms/alvin.nix:
-#     publish = [ { port = 3000; } ];                    # https? → alvin.tharavad.xyz
-#     publish = [ { subdomain = "blog"; port = 8080; } ]; # blog.tharavad.xyz
+#     publish = [ { port = 3000; } ];                    # → https://alvin.tharavad.xyz
+#     publish = [ { subdomain = "blog"; port = 8080; } ]; # → https://blog.tharavad.xyz
 #
 # path:
-#   internet :80 → edge nginx → WG 10.99.0.2:9080 → mothership nginx
-#     → http://<member>.mothership:<port>  (mesh MagicDNS)
+#   internet :443 (ACME on edge) → edge nginx → WG 10.99.0.2:9080 → mothership nginx
+#     → http://<member>.mothership:<port>  (mesh MagicDNS; TLS terminates at edge)
 {
   config,
   lib,
@@ -161,7 +161,7 @@ in
         networking.firewall.allowedTCPPorts = lib.mkAfter [ ]; # don't open routerPort globally
       })
 
-      # ── edge: public :80 → mothership router ───────────────────────────
+      # ── edge: public :80/:443 → mothership router ──────────────────────
       (lib.mkIf (cfg.role == "edge") {
         services.nginx = {
           enable = true;
@@ -172,12 +172,8 @@ in
               name = "pub-${r.subdomain}";
               value = {
                 serverName = r.fqdn;
-                listen = [
-                  {
-                    addr = "0.0.0.0";
-                    port = 80;
-                  }
-                ];
+                forceSSL = true;
+                enableACME = true;
                 locations."/" = {
                   # keep headers minimal — avoid Connection/Upgrade map issues → 400
                   proxyPass = "http://${jumpHost}:${toString routerPort}";
@@ -198,8 +194,12 @@ in
           );
         };
 
-        networking.firewall.allowedTCPPorts = [ 80 ];
+        networking.firewall.allowedTCPPorts = [
+          80
+          443
+        ];
       })
     ]
   );
 }
+
