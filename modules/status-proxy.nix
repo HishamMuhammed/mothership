@@ -43,18 +43,15 @@ in
         enableACME = true;
         locations."/" = {
           proxyPass = "http://${cfg.routerHost}:${toString cfg.routerPort}";
-          # do not use recommendedProxySettings here — it injects Host again
-          # on top of extraConfig and mothership nginx answers 400 Bad Request
+          # recommendedProxySettings injects Host= again → double Host → upstream 400
           recommendedProxySettings = false;
+          # websockets: sets proxy_http_version + Upgrade/Connection map (do not re-set)
           proxyWebsockets = true;
           extraConfig = ''
-            proxy_http_version 1.1;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection $connection_upgrade;
             proxy_connect_timeout 10s;
             proxy_read_timeout 3600s;
             proxy_send_timeout 3600s;
