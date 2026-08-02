@@ -1,6 +1,6 @@
 {
   github = "CDWizard";
-  tier = "small";
+  tier = "medium";
   enabled = true;
 
   keys = [
