@@ -1,10 +1,8 @@
 # user-vms/binuchambayil.nix
 {
-  tier = "small";  # Options: "small" | "medium" | "large"
+  tier = "small";   # small | medium | large
   enabled = true;
   keys = [
-    "ssh-ed25519 AAAA... binuchambayil@host"
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICWBHeLsOMqMK5h9Q1TP15205/wSf0bFdJK0EJE9tftP hbinu"
   ];
-  # optional:
-  # publish = [ { port = 3000; } ];
 }
