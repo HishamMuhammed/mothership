@@ -1,5 +1,5 @@
 {
-  tier = "small";
+  tier = "medium";
   enabled = true;
 
   keys = [
